@@ -89,5 +89,8 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
   verteilen (Backtest: je Saison aus 3 Vorsaisons; live: data/reports/tip_weights.json).
   Test ab 2019: Tendenz 50,8 % statt 40,1 %, exakt 12,1 % statt 12,9 %, Punkte 1,36 statt 1,10.
   Das wahrscheinlichste Einzelergebnis (argmax, meist 1:1) bleibt als pred_h/pred_a gespeichert.
-- Nachträgliche Zell-Kalibrierung der Matrix getestet (2026-09-29): kein Gewinn, verworfen.
+- Getestet und verworfen (kein Gewinn im Backtest, Details im Git-Log):
+  Zell-Kalibrierung der Matrix; Europapokal-Belastung; direkte Duelle (letzte 6 H2H,
+  Tordifferenz/Torsumme); „Tor-Umfeld“ (Torsumme der letzten Spiele beider Teams).
+  Tor-/Gegentor-Form ist bereits über form_gf/ga und form_xgf/xga im LightGBM.
 - Code und Kommentare auf Deutsch, Bezeichner auf Englisch.

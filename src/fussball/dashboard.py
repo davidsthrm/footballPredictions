@@ -101,7 +101,7 @@ def absence_impact(con: sqlite3.Connection, pred: pd.DataFrame) -> tuple[dict, s
 
 
 def europe_note(ctx: Ctx, team_id: str, match_date: str) -> str:
-    """'Europapokal vor 3 Tagen' / 'Europapokal in 3 Tagen' (nur wenn nah dran)."""
+    """'Europapokal vor 3 Tagen' (Belastung wirkt nach dem Spiel; nur wenn nah dran)."""
     dates = ctx.europe.get(team_id)
     if dates is None:
         return ""
@@ -111,10 +111,6 @@ def europe_note(ctx: Ctx, team_id: str, match_date: str) -> str:
     if i > 0 and (d - dates[i - 1]) / np.timedelta64(1, "D") <= 4:
         n = int((d - dates[i - 1]) / np.timedelta64(1, "D"))
         notes.append(f"Europapokal vor {n} Tag{'en' if n != 1 else ''}")
-    j = np.searchsorted(dates, d, side="right")
-    if j < len(dates) and (dates[j] - d) / np.timedelta64(1, "D") <= 3:
-        n = int((dates[j] - d) / np.timedelta64(1, "D"))
-        notes.append(f"Europapokal in {n} Tag{'en' if n != 1 else ''}")
     return f"<span class='eu'>{' · '.join(notes)}</span>" if notes else ""
 
 
@@ -240,7 +236,24 @@ def absence_list(ctx: Ctx, team_id: str, team: str, match_date: str) -> str:
             f"<ul>{''.join(items)}</ul></div>")
 
 
-def match_card(r, ctx: Ctx, provisional: bool) -> str:
+WEEKDAYS_LONG = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September",
+          "Oktober", "November", "Dezember"]
+
+
+def _tip(r) -> tuple[int, int, float, float]:
+    """(Tipp Heim, Tipp Auswärts, P(Tendenz des Tipps), P(Tipp exakt))."""
+    m = np.array(json.loads(r.matrix))
+    th, ta = (int(r.tip_h), int(r.tip_a)) if pd.notna(r.tip_h) else (int(r.pred_h), int(r.pred_a))
+    p_tend = {1: r.p_h, 0: r.p_d, -1: r.p_a}[int(np.sign(th - ta))]
+    return th, ta, float(p_tend), float(m[th, ta])
+
+
+def _local_day(utc: str) -> date:
+    return datetime.fromisoformat(utc).replace(tzinfo=timezone.utc).astimezone(TZ).date()
+
+
+def match_card(r, ctx: Ctx, provisional: bool, prefix: str = "l", show_league: bool = False) -> str:
     day, time = _kickoff(r.kickoff_utc)
     home, away = ctx.names.get(r.home_id, r.home_id), ctx.names.get(r.away_id, r.away_id)
     crests = ctx.crests
@@ -251,14 +264,16 @@ def match_card(r, ctx: Ctx, provisional: bool) -> str:
     if pd.notna(getattr(r, "lam_h0", np.nan)) and (abs(r.lam_h0 - r.lam_h) + abs(r.lam_a0 - r.lam_a)) >= 0.02:
         shift = (f"<p class='muted small'>Ausfälle eingerechnet: erwartete Tore {_num(r.lam_h0, 2)} : "
                  f"{_num(r.lam_a0, 2)} → {_num(r.lam_h, 2)} : {_num(r.lam_a, 2)}</p>")
-    uid = r.understat_match_id
-    th, ta = (int(r.tip_h), int(r.tip_a)) if pd.notna(r.tip_h) else (r.pred_h, r.pred_a)
-    p_tend = {1: r.p_h, 0: r.p_d, -1: r.p_a}[int(np.sign(th - ta))]
+    uid = f"{prefix}{r.understat_match_id}"
+    th, ta, p_tend, _ = _tip(r)
+    lg_tag = (f"<span class='lgtag'><span class='logo lg-{r.league}'></span>{escape(config.LEAGUES[r.league].name)}</span>"
+              if show_league else "")
+    theme = THEMES[r.league]
     likely = ("" if (th, ta) == (r.pred_h, r.pred_a) else
               f"<span class='alt'>wahrscheinlichstes Einzelergebnis {r.pred_h}:{r.pred_a}</span>")
     return f"""
-<article class="card">
-  <div class="meta"><span>{day} · {time}{'*' if provisional else ''}</span>
+<article class="card" style="--lg:{theme.primary}">
+  {lg_tag}<div class="meta"><span>{day} · {time}{'*' if provisional else ''}</span>
     <span class="chance">Tendenz {_pct(p_tend)} · exakt {_pct(m[th, ta], 1)}</span></div>
   <div class="fixture">
     <div class="side">{crest(r.home_id, crests, home)}<span class="team">{escape(home)}</span>{europe_note(ctx, r.home_id, r.date)}</div>
@@ -283,10 +298,56 @@ def league_section(lg: str, g: pd.DataFrame, ctx: Ctx) -> str:
     days = list(dict.fromkeys(_kickoff(k)[0] for k in sorted(g.kickoff_utc)))
     span = days[0] if len(days) == 1 else f"{days[0]} – {days[-1]}"
     note = "<p class='muted small note'>* Anstoßzeiten noch nicht terminiert</p>" if provisional else ""
-    cards = "".join(match_card(r, ctx, provisional) for r in g.itertuples())
+    cards = "".join(match_card(r, ctx, provisional, "l") for r in g.itertuples())
     return f"""<section id="{lg}" class="league" style="--lg:{th.primary};--lg-accent:{th.accent};--lg-ink:{th.ink}">
 <header class="lg-head"><span class="logo lg-{lg}" role="img" aria-label="Logo {escape(name)}"></span>
 <div><h2>{escape(name)}</h2><p>{span} · {len(g)} Spiele</p></div></header>{note}{cards}</section>"""
+
+
+def provisional_leagues(pred: pd.DataFrame) -> set[str]:
+    """Ligen, deren Anstoßzeiten noch Platzhalter sind (viele Spiele zur selben Minute)."""
+    return {lg for lg, g in pred.groupby("league") if g.kickoff_utc.value_counts().max() >= 6}
+
+
+def day_view(pred: pd.DataFrame, ctx: Ctx) -> str:
+    prov = provisional_leagues(pred)
+    pred = pred.assign(day=pred.kickoff_utc.map(_local_day)).sort_values(["day", "kickoff_utc", "league"])
+    out = []
+    for day, g in pred.groupby("day", sort=True):
+        title = f"{WEEKDAYS_LONG[day.weekday()]}, {day.day}. {MONTHS[day.month - 1]}"
+        cards = "".join(match_card(r, ctx, r.league in prov, "d", show_league=True) for r in g.itertuples())
+        count = f"{len(g)} Spiel{'e' if len(g) != 1 else ''}"
+        out.append(f"<section class='day'><h2 class='dayhead'>{title} <small>{count}</small></h2>{cards}</section>")
+    note = ("<p class='muted small note'>* Anstoßzeit noch nicht terminiert – der Tag kann sich noch ändern</p>"
+            if prov else "")
+    return note + "".join(out)
+
+
+def top_view(pred: pd.DataFrame, ctx: Ctx, n: int = 10) -> str:
+    rows = []
+    for r in pred.itertuples():
+        th, ta, p_tend, p_exact = _tip(r)
+        rows.append((r, th, ta, p_tend, p_exact))
+
+    def line(r, th, ta, value) -> str:
+        home, away = ctx.names.get(r.home_id, r.home_id), ctx.names.get(r.away_id, r.away_id)
+        day, _ = _kickoff(r.kickoff_utc)
+        return (f"<li class='topline' style='--lg:{THEMES[r.league].primary}'>"
+                f"<span class='logo lg-{r.league}' title='{escape(config.LEAGUES[r.league].name)}'></span>"
+                f"<span class='tt'><span class='tm'>{crest(r.home_id, ctx.crests, home)}{escape(home)}</span>"
+                f"<span class='tm'>{crest(r.away_id, ctx.crests, away)}{escape(away)}</span></span>"
+                f"<span class='tscore'><strong>{th}:{ta}</strong><span class='muted'>{day}</span></span>"
+                f"<span class='tval'>{_pct(value, 0 if value >= 0.2 else 1)}</span></li>")
+
+    tend = sorted(rows, key=lambda x: -x[3])[:n]
+    exact = sorted(rows, key=lambda x: -x[4])[:n]
+    return f"""<section class="plain"><h2>Sicherste Tendenzen</h2>
+<p class="muted small">Die {n} Tipps, bei denen Sieg/Remis/Niederlage am wahrscheinlichsten stimmt.</p>
+<ol class="toplist">{''.join(line(r, th, ta, pt) for r, th, ta, pt, _ in tend)}</ol>
+<h2>Wahrscheinlichste exakte Treffer</h2>
+<p class="muted small">Die {n} Tipps mit der höchsten Chance auf das exakte Ergebnis. Selbst der beste
+Tipp trifft nur mit {_pct(exact[0][4])} – ungefähr jedes {round(1 / exact[0][4])}. Mal.</p>
+<ol class="toplist">{''.join(line(r, th, ta, pe) for r, th, ta, _, pe in exact)}</ol></section>"""
 
 
 def ab_test(sc_all: pd.DataFrame, model: str | None) -> str:
@@ -371,13 +432,21 @@ CSS = """
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 main{max-width:760px;margin:0 auto;padding:0 16px 48px}
 .top{padding:20px 0 4px}.top h1{font-size:26px;letter-spacing:-.02em;margin:0}.top p{margin:4px 0 0;color:var(--muted);font-size:13px}
-nav{display:flex;gap:8px;overflow-x:auto;padding:12px 0;position:sticky;top:0;background:var(--bg);z-index:2;scrollbar-width:none}
+.vt{position:absolute;opacity:0;pointer-events:none}
+.tabs{display:flex;gap:4px;position:sticky;top:0;z-index:3;background:var(--bg);padding:10px 0 8px}
+.tabs label{flex:1;text-align:center;padding:9px 4px;border-radius:10px;font-weight:700;font-size:14px;
+cursor:pointer;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+#t-liga:checked~.tabs label[for=t-liga],#t-tag:checked~.tabs label[for=t-tag],#t-top:checked~.tabs label[for=t-top]
+{background:var(--text);color:var(--bg);border-color:var(--text)}
+.view{display:none}
+#t-liga:checked~.views .v-liga,#t-tag:checked~.views .v-tag,#t-top:checked~.views .v-top{display:block}
+nav{display:flex;gap:8px;overflow-x:auto;padding:4px 0 8px;background:var(--bg);scrollbar-width:none}
 nav::-webkit-scrollbar{display:none}
 nav a{flex:none;display:flex;align-items:center;gap:6px;padding:5px 12px 5px 5px;border-radius:999px;
 color:var(--text);text-decoration:none;font-size:13px;font-weight:600;background:var(--surface);border:1px solid var(--line)}
 nav a .logo{width:24px;height:24px;border-radius:50%}nav a.plain{padding-left:12px}
 .logo{display:inline-block;background:#fff center/80% no-repeat;flex:none}
-.league{margin-top:18px}section{scroll-margin-top:60px}
+.league{margin-top:18px}section{scroll-margin-top:64px}.dayhead{font-size:18px;margin:22px 0 4px}.dayhead small{color:var(--muted);font-weight:400;font-size:13px}.lgtag{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px}.lgtag .logo{width:18px;height:18px;border-radius:4px}.toplist{list-style:none;padding:0;margin:8px 0 0;counter-reset:top}.topline{display:grid;grid-template-columns:28px 1fr auto auto;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--lg);border-radius:12px;padding:8px 10px;margin:6px 0}.topline>.logo{width:26px;height:26px;border-radius:6px}.tt{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:13px;font-weight:600}.tm{display:flex;align-items:center;gap:6px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.tm .crest{width:18px;height:18px;flex:none}.tscore{display:flex;flex-direction:column;align-items:center;font-size:11px}.tscore strong{font-size:20px}.tval{font-weight:800;font-size:16px;font-variant-numeric:tabular-nums;min-width:48px;text-align:right}
 .lg-head{display:flex;align-items:center;gap:12px;background:var(--lg);color:var(--lg-ink);border-radius:14px;
 padding:12px 14px;border-bottom:4px solid var(--lg-accent)}
 .lg-head .logo{width:48px;height:48px;border-radius:10px}.lg-head h2{margin:0;font-size:19px;letter-spacing:-.01em}
@@ -457,8 +526,12 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
         nav.append(f'<a href="#{lg}"><span class="logo lg-{lg}"></span>{escape(config.LEAGUES[lg].name)}</a>')
         sections.append(league_section(lg, g, ctx))
     nav += ['<a class="plain" href="#bilanz">Bilanz</a>', '<a class="plain" href="#modell">Einordnung</a>']
-    if not sections:
-        sections.append("<p class='muted'>Keine Vorhersagen vorhanden – erst <code>fussball predict</code> ausführen.</p>")
+    if sections:
+        views = (f'<div class="view v-liga"><nav class="chips">{"".join(nav)}</nav>{"".join(sections)}</div>'
+                 f'<div class="view v-tag">{day_view(pred, ctx)}</div>'
+                 f'<div class="view v-top">{top_view(pred, ctx)}</div>')
+    else:
+        views = "<p class='muted'>Keine Vorhersagen vorhanden – erst <code>fussball predict</code> ausführen.</p>"
 
     created = (datetime.fromisoformat(pred.created_at.max()).astimezone(TZ).strftime("%d.%m.%Y, %H:%M")
                if len(pred) else "–")
@@ -469,12 +542,14 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
 <title>Nächster Spieltag</title><style>{CSS}{''.join(img_css)}</style></head><body><main>
 <div class="top"><h1>Nächster Spieltag</h1><p>Stand {created} · Ergebnisse bis {results_until} ·
 Ausfälle vom {pd.Timestamp(snap).strftime('%d.%m.') if snap else '–'}</p></div>
-<nav>{''.join(nav)}</nav>
-{''.join(sections)}
+<input type="radio" name="view" id="t-liga" class="vt" checked><input type="radio" name="view" id="t-tag" class="vt">
+<input type="radio" name="view" id="t-top" class="vt">
+<div class="tabs"><label for="t-liga">Ligen</label><label for="t-tag">Tage</label><label for="t-top">Top-Tipps</label></div>
+<div class="views">{views}</div>
 {scorecard_section(sc, names, ab_test(sc_all, model))}
 {backtest_section(model_comparison(), model)}
-<footer>Tipp = wahrscheinlichstes Ergebnis laut Modell: {escape(describe_model(model))}.
-Wettquoten fließen nicht ein.
+<footer>Tipp = realistischer Tipp: erst Sieg/Remis/Niederlage, dann das wahrscheinlichste Ergebnis
+dazu. Modell: {escape(describe_model(model))}. Wettquoten fließen nicht ein.
 Wappen und Logos: Transfermarkt, nur zur privaten Nutzung.</footer>
 </main></body></html>"""
 
