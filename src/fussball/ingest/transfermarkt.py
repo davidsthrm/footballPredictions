@@ -92,7 +92,10 @@ def _section_heading(table: Tag) -> str:
     return h.get_text(" ", strip=True) if h else ""
 
 
-def _category(section: str, heading: str) -> str:
+def _category(section: str, heading: str, reason: str = "") -> str:
+    if "spielberechtigung" in reason.lower():
+        # z.B. nicht für den Champions-League-Kader gemeldet – für die Liga ohne Bedeutung
+        return "registration"
     if "droht" in heading.lower():
         return "suspension_threat"
     s = section.lower()
@@ -135,6 +138,7 @@ def parse_club(html: str) -> list[dict]:
                     rec[f] = _date(text)
                 elif f == "reason":
                     rec[f] = text or None
+                    rec["category"] = _category(section, heading, text)
                 elif text:
                     extra.append(f"{f}: {text}")
             if extra and not rec.get("reason"):

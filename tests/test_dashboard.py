@@ -48,6 +48,8 @@ def test_views_tabs_and_unique_ids(con):
     assert 'id="t-liga" class="vt" checked' in html and 'for="t-tag"' in html and 'for="t-top"' in html
     assert "Samstag, 10. Oktober" in html and "Sonntag, 11. Oktober" in html and "1 Spiel<" in html
     assert "Sicherste Tendenzen" in html and "2:0" in html
+    assert "Sieg Alpha" in html and "gewinnt zu Hause gegen Beta" in html     # Sieger klar benannt
+    assert 'class="side win"' in html and 'class="side lose"' in html
     ids = re.findall(r'<input[^>]* id="([^"]+)"', html)
     assert len(ids) == len(set(ids))
     assert "Europapokal in" not in html

@@ -26,7 +26,6 @@ ATTACK_FACTOR = 0.5    # Ersatzspieler fängt etwa die Hälfte des fehlenden xG+
 DEFENCE_FACTOR = 0.3   # fehlende Defensive erhöht die Gegentore moderat
 MAX_ATTACK_CUT = 0.25
 MAX_DEFENCE_RISE = 0.20
-IGNORE_REASONS = ("keine Spielberechtigung",)  # meist nur Europapokal-Kaderliste
 
 
 TRANSLIT = str.maketrans({"ø": "o", "Ø": "O", "æ": "ae", "Æ": "Ae", "å": "a", "ß": "ss", "đ": "d",
@@ -79,7 +78,6 @@ def team_absences(con: sqlite3.Connection, match_date: str, season: int) -> tupl
     a = db.read(con, """SELECT team_id, tm_player_id, player, reason, until FROM availability_snapshots
                         WHERE snapshot_date = ? AND category IN ('injury', 'suspension')
                           AND team_id IS NOT NULL""", (snap,))
-    a = a[~a.reason.fillna("").isin(IGNORE_REASONS)]
     a = a[a.until.isna() | (a.until >= match_date)].drop_duplicates(["team_id", "tm_player_id"])
     imp = player_importance(con, season)
     rows = []

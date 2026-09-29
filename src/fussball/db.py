@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS availability_snapshots (
     player        TEXT NOT NULL,
     position      TEXT,
     age           INTEGER,
-    category      TEXT NOT NULL,          -- injury | suspension | other | suspension_threat
+    category      TEXT NOT NULL,          -- injury | suspension | other | suspension_threat | registration
     reason        TEXT,
     since         TEXT,
     until         TEXT,
@@ -186,6 +186,9 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
         cols = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
         if col not in cols:
             con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    # Einträge "keine Spielberechtigung" (Europapokal-Kader) sind keine Liga-Ausfälle
+    con.execute("""UPDATE OR IGNORE availability_snapshots SET category = 'registration'
+                   WHERE reason LIKE '%Spielberechtigung%' AND category != 'registration'""")
     con.commit()
     return con
 

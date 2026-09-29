@@ -107,3 +107,10 @@ def test_transfermarkt_club_parser():
                                         ("500 Tsd. €", 5e5), ("-", None), ("", None)])
 def test_parse_value(text, value):
     assert tm.parse_value(text) == (pytest.approx(value) if value else None)
+
+
+def test_registration_is_not_a_league_absence():
+    html = CLUB_HTML.replace("Rotsperre", "keine Spielberechtigung")
+    recs = {r["tm_player_id"]: r for r in tm.parse_club(html)}
+    assert recs[222]["category"] == "registration"
+    assert recs[111]["category"] == "injury"
