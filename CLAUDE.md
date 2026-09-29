@@ -97,4 +97,7 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
   Zell-Kalibrierung der Matrix; Europapokal-Belastung; direkte Duelle (letzte 6 H2H,
   Tordifferenz/Torsumme); „Tor-Umfeld“ (Torsumme der letzten Spiele beider Teams).
   Tor-/Gegentor-Form ist bereits über form_gf/ga und form_xgf/xga im LightGBM.
+  Außerdem (2026-09-30): npxG statt xG (schlechter: Elfmeter sind teils Können),
+  teamspezifischer Heimvorteil mit L2 (schlechter, auch stark regularisiert),
+  realistische Tordifferenz-Verteilung der Tipps (−0,8 Pp. exakt, −2,4 Pp. Tordifferenz).
 - Code und Kommentare auf Deutsch, Bezeichner auf Englisch.

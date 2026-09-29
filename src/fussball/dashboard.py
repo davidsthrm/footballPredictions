@@ -195,6 +195,12 @@ def _cell_style(p: float, pmax: float) -> str:
     return f' style="background:{RAMP[k]};color:{fg}"'
 
 
+def _cell_label(p: float) -> str:
+    if p < 0.005:
+        return "·" if p >= 0.0005 else ""
+    return f"{100 * p:.0f}"
+
+
 def matrix_table(m: np.ndarray, home: str, away: str, tip: tuple[int, int],
                  likely: tuple[int, int] | None = None) -> str:
     n = MATRIX_SHOW
@@ -204,14 +210,14 @@ def matrix_table(m: np.ndarray, home: str, away: str, tip: tuple[int, int],
     rows = []
     for i in range(n):
         cells = "".join(
-            f"<td{' class=tip' if (i, j) == tip else (' class=likely' if (i, j) == likely else '')}"
-            f"{_cell_style(sub[i, j], pmax)}>"
-            f"{_num(100 * sub[i, j]) if sub[i, j] >= 0.0005 else ''}</td>" for j in range(n))
+            f"<td{' class=mtip' if (i, j) == tip else (' class=mlikely' if (i, j) == likely else '')}"
+            f"{_cell_style(sub[i, j], pmax)}>{_cell_label(sub[i, j])}</td>" for j in range(n))
         rows.append(f"<tr><th>{i}</th>{cells}</tr>")
-    return (f'<table class="matrix"><thead><tr><th class="corner">↓ {escape(home)}<br>→ {escape(away)}</th>'
-            f'{head}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
-            f'<p class="muted small">Wahrscheinlichkeit je Ergebnis in %. Umrandet = Tipp'
-            f'{", gestrichelt = wahrscheinlichstes Einzelergebnis" if likely and likely != tip else ""}</p>')
+    return (f'<div class="mx-axis"><span>Tore {escape(away)} →</span></div>'
+            f'<table class="matrix"><thead><tr><th class="corner">↓</th>{head}</tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table>'
+            f'<p class="muted small mx-note">Zeilen: Tore {escape(home)} · Werte in % · schwarz umrandet = Tipp'
+            f'{" · grau umrandet = wahrscheinlichstes Einzelergebnis" if likely and likely != tip else ""}</p>')
 
 
 def outcome_bar(ph: float, pd_: float, pa: float, pick: int) -> str:
@@ -267,6 +273,20 @@ def verdict(th: int, ta: int, home: str, away: str) -> tuple[int, str]:
     return k, {1: f"Sieg {home}", 0: "Unentschieden", -1: f"Sieg {away}"}[k]
 
 
+BLOWOUT_MIN = 0.12   # ab dieser Wahrscheinlichkeit wird ein möglicher Kantersieg erwähnt
+
+
+def blowout(m: np.ndarray, home: str, away: str) -> str:
+    """Hinweis auf einen möglichen Sieg mit 3+ Toren Unterschied (wird bewusst nicht getippt)."""
+    g = np.arange(m.shape[0])
+    d = g[:, None] - g[None, :]
+    ph, pa = m[d >= 3].sum(), m[d <= -3].sum()
+    team, p = (home, ph) if ph >= pa else (away, pa)
+    if p < BLOWOUT_MIN:
+        return ""
+    return f"<p class='blowout'>Kantersieg (3+ Tore) für {escape(team)}: {_pct(p)}</p>"
+
+
 def confidence(p: float) -> str:
     level = "hoch" if p >= 0.6 else ("mittel" if p >= 0.45 else "offen")
     return (f'<span class="conf conf-{level}" style="--p:{100 * p:.0f}%">'
@@ -303,6 +323,7 @@ def match_card(r, ctx: Ctx, provisional: bool, prefix: str = "l", show_league: b
   </div>
   {outcome_bar(r.p_h, r.p_d, r.p_a, pick)}
   <p class="facts">Exakt {th}:{ta}: {_pct(p_exact, 1)} · erwartete Tore {_num(r.lam_h)} : {_num(r.lam_a)}</p>
+  {blowout(m, home, away)}
   <input type="checkbox" id="m{uid}" class="tg tg-m"><input type="checkbox" id="a{uid}" class="tg tg-a">
   <div class="toggles"><label for="m{uid}" class="lm">Ergebnismatrix</label>
     <label for="a{uid}" class="la">Ausfälle {n_home} · {n_away}</label></div>
@@ -538,6 +559,8 @@ line-height:1.2;max-width:130px}
 .barlabels b{font-size:14px;color:var(--text);font-variant-numeric:tabular-nums;font-weight:600}
 .barlabels span.on b{font-weight:800}.barlabels span.h.on b{color:var(--home)}.barlabels span.a.on b{color:var(--away)}
 .facts{margin:8px 0 0;font-size:12px;color:var(--muted);text-align:center}
+.blowout{margin:6px auto 0;width:fit-content;font-size:11px;font-weight:700;color:var(--text);background:var(--chip);
+border-radius:999px;padding:3px 10px}
 /* Aufklappen */
 .tg{position:absolute;opacity:0;pointer-events:none;width:0;height:0}
 .toggles{display:flex;gap:8px;margin-top:10px}
@@ -548,12 +571,15 @@ border:1px solid var(--line);border-radius:12px;padding:8px 6px;cursor:pointer;u
 .tg-m:checked~.pm,.tg-a:checked~.pa,.tg-r:checked~.pr{display:block}
 .tg-m:checked~.toggles .lm,.tg-a:checked~.toggles .la,.tg-r:checked~.toggles .lr{background:var(--accent);color:#fff;border-color:var(--accent)}
 .tg-m:checked~.toggles .lm::after,.tg-a:checked~.toggles .la::after,.tg-r:checked~.toggles .lr::after{content:" ▴"}
-.matrix{border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums;width:100%;table-layout:fixed}
-.matrix th{color:var(--muted);font-weight:600;padding:3px;font-size:11px}
-.matrix th.corner{text-align:left;font-weight:400;font-size:10px;line-height:1.2;width:28%;overflow-wrap:anywhere}
-.matrix td{text-align:center;padding:6px 1px;border:2px solid var(--surface);border-radius:4px}
-.matrix td.tip{outline:2px solid var(--text);outline-offset:-2px;font-weight:800}
-.matrix td.likely{outline:2px dashed var(--muted);outline-offset:-2px}
+.matrix{border-collapse:separate;border-spacing:2px;font-size:11px;font-variant-numeric:tabular-nums;width:100%;
+table-layout:fixed;line-height:1}
+.matrix th{color:var(--muted);font-weight:700;padding:2px 0;font-size:10px}
+.matrix th.corner{width:16px}
+.matrix td{text-align:center;padding:7px 0;border-radius:5px;font-weight:600}
+.matrix td.mtip{box-shadow:inset 0 0 0 2px var(--text);font-weight:800}
+.matrix td.mlikely{box-shadow:inset 0 0 0 2px var(--muted)}
+.mx-axis{display:flex;justify-content:flex-end;font-size:10px;color:var(--muted);font-weight:600;margin-bottom:2px}
+.mx-note{margin:6px 0 0;font-size:11px}
 .abs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .abs-team{font-weight:700;margin:0 0 4px;font-size:13px}
 .abs ul{margin:0;padding:0;list-style:none;font-size:12px}.abs li{padding:5px 0;border-top:1px solid var(--line)}
