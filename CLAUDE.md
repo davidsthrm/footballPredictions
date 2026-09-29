@@ -2,7 +2,8 @@
 
 Privates ML-Projekt: exaktes Endergebnis jedes Spiels des **nächsten Spieltags** in
 Premier League (E0), La Liga (SP1), Serie A (I1), Ligue 1 (F1) und Bundesliga (D1).
-Vorhersage am Vortag, ohne bekannte Aufstellungen. Erfolgsmetrik: exakte Treffer;
+Vorhersage am Vortag, ohne bekannte Aufstellungen. Erfolgsmetrik: exakte Treffer
+bei realistischer Tipp-Verteilung (Tendenz, Tippspiel-Punkte 4/3/2 im Blick);
 Modellauswahl über Log-Loss auf der Ergebnismatrix (Trefferquote ist zu verrauscht).
 
 ## Harte Regeln
@@ -72,6 +73,10 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
 - Anzeigenamen deutsch über `data_seed/team_display_names.csv` (Aufsteiger ergänzen);
   Liga-Farben in `dashboard.THEMES`; Wappen/Logos von Transfermarkt, einmalig gecacht
   unter data/raw/transfermarkt/{crests,logos}/ und base64 eingebettet.
-- Entscheidungsregel bleibt argmax der Matrix (optimal für exakte Treffer bei kalibrierter
-  Matrix). Nachträgliche Zell-Kalibrierung getestet (2026-09-29): kein Gewinn, verworfen.
+- Haupttipp = realistische Strategie (`models/tipping.py`): erst Ausgang über p·w, dann
+  wahrscheinlichstes Ergebnis darin; Gewichte w so, dass die Tipps sich wie echte Ergebnisse
+  verteilen (Backtest: je Saison aus 3 Vorsaisons; live: data/reports/tip_weights.json).
+  Test ab 2019: Tendenz 50,8 % statt 40,1 %, exakt 12,1 % statt 12,9 %, Punkte 1,36 statt 1,10.
+  Das wahrscheinlichste Einzelergebnis (argmax, meist 1:1) bleibt als pred_h/pred_a gespeichert.
+- Nachträgliche Zell-Kalibrierung der Matrix getestet (2026-09-29): kein Gewinn, verworfen.
 - Code und Kommentare auf Deutsch, Bezeichner auf Englisch.

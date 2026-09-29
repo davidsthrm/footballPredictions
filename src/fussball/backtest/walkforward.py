@@ -85,3 +85,22 @@ def apply_rates(pred: pd.DataFrame) -> pd.DataFrame:
         rows.append((m[min(r.hg, MAX_GOALS), min(r.ag, MAX_GOALS)], ph, pd_, pa, int(i), int(j), m[i, j]))
     cols = ["p_actual", "p_h", "p_d", "p_a", "pred_h", "pred_a", "p_pred"]
     return pred.assign(**dict(zip(cols, map(list, zip(*rows)))))
+
+
+def add_tips(pred: pd.DataFrame, lookback: int = 3) -> tuple[pd.DataFrame, dict[int, list[float]]]:
+    """Realistische Tipps je Saison; Gewichte nur aus den `lookback` Vorsaisons (sonst Default)."""
+    from fussball.models import tipping
+    from fussball.models.dixon_coles import score_matrix
+    M = np.stack([score_matrix(r.lam_h, r.lam_a, r.rho) for r in pred.itertuples()])
+    P = tipping.outcome_matrix_probs(M)
+    actual = metrics.outcome_index(pred.hg, pred.ag)
+    season = pred.season.to_numpy()
+    tips = np.zeros((len(pred), 2), dtype=int)
+    used = {}
+    for s in np.unique(season):
+        prior = (season < s) & (season >= s - lookback)
+        w = tipping.fit_weights(P[prior], actual[prior]) if prior.sum() >= 300 else tipping.DEFAULT_WEIGHTS
+        used[int(s)] = [round(float(x), 3) for x in w]
+        for n in np.flatnonzero(season == s):
+            tips[n] = tipping.tip(M[n], w)
+    return pred.assign(tip_h=tips[:, 0], tip_a=tips[:, 1]), used

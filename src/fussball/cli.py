@@ -123,8 +123,8 @@ def cmd_predict(args) -> int:
         print(f"\n{config.LEAGUES[lg].name} – {g.date.min()} bis {g.date.max()}")
         for r in g.sort_values("kickoff_utc").itertuples():
             flag = "  (Team ohne Historie!)" if r.unknown_team else ""
-            print(f"  {r.kickoff_utc[5:16]} UTC  {r.home:>22} {r.pred_h}:{r.pred_a} {r.away:<22}"
-                  f"  P(Tipp) {r.p_pred:5.1%}   1/X/2 {r.p_h:4.0%} {r.p_d:4.0%} {r.p_a:4.0%}{flag}")
+            print(f"  {r.kickoff_utc[5:16]} UTC  {r.home:>22} {r.tip_h}:{r.tip_a} {r.away:<22}"
+                  f"  (wahrsch. {r.pred_h}:{r.pred_a})  1/X/2 {r.p_h:4.0%} {r.p_d:4.0%} {r.p_a:4.0%}{flag}")
     print(f"\n{len(out)} Vorhersagen gespeichert (Modell: {out.model.iloc[0]}, Cutoff {out.cutoff_date.iloc[0]}).")
     return 0
 
@@ -144,9 +144,11 @@ def cmd_scorecard(args) -> int:
     if sc.empty:
         print("Noch keine ausgewerteten Live-Vorhersagen.")
         return 0
-    agg = sc.groupby("league").agg(n=("exact", "size"), exact=("exact", "mean"), diff=("diff", "mean"),
-                                   tendency=("tendency", "mean"), logloss=("logloss", "mean"))
-    agg.loc["ALL"] = [len(sc), sc.exact.mean(), sc["diff"].mean(), sc.tendency.mean(), sc.logloss.mean()]
+    agg = sc.groupby("league").agg(n=("tip_exact", "size"), exact=("tip_exact", "mean"),
+                                   diff=("tip_diff", "mean"), tendency=("tip_tendency", "mean"),
+                                   points=("points", "mean"), logloss=("logloss", "mean"))
+    agg.loc["ALL"] = [len(sc), sc.tip_exact.mean(), sc.tip_diff.mean(), sc.tip_tendency.mean(),
+                      sc.points.mean(), sc.logloss.mean()]
     for c in ("exact", "diff", "tendency"):
         agg[c] = (100 * agg[c]).round(1)
     _print(agg.reset_index())

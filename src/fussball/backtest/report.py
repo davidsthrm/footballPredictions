@@ -25,6 +25,12 @@ def enrich(pred: pd.DataFrame, odds: pd.DataFrame | None) -> pd.DataFrame:
     p["rps"] = metrics.rps(p[["p_h", "p_d", "p_a"]].to_numpy(), outcome)
     for k, v in metrics.hits(p.pred_h, p.pred_a, p.hg, p.ag).items():
         p[k] = v
+    p["pts_argmax"] = metrics.tippspiel_points(p.pred_h, p.pred_a, p.hg, p.ag)
+    if "tip_h" in p:
+        for k, v in metrics.hits(p.tip_h, p.tip_a, p.hg, p.ag).items():
+            p[f"tip_{k}"] = v
+        p["pts_tip"] = metrics.tippspiel_points(p.tip_h, p.tip_a, p.hg, p.ag)
+        p["tip_draw"] = p.tip_h == p.tip_a
     for name, (h, a) in BASELINE_TIPS.items():
         for k, v in metrics.hits(h, a, p.hg, p.ag).items():
             p[f"{k}_{name}"] = v
@@ -47,6 +53,13 @@ def _agg(g: pd.DataFrame) -> pd.Series:
         "diff_%": 100 * g["diff"].mean(),
         "tend_%": 100 * g.tendency.mean(),
     }
+    s["pts_argmax"] = g.pts_argmax.mean()
+    if "tip_exact" in g:
+        s["tip_exact_%"] = 100 * g.tip_exact.mean()
+        s["tip_diff_%"] = 100 * g.tip_diff.mean()
+        s["tip_tend_%"] = 100 * g.tip_tendency.mean()
+        s["pts_tip"] = g.pts_tip.mean()
+        s["tip_draw_%"] = 100 * g.tip_draw.mean()
     for name in BASELINE_TIPS:
         s[f"exact_{name}_%"] = 100 * g[f"exact_{name}"].mean()
         s[f"tend_{name}_%"] = 100 * g[f"tendency_{name}"].mean()

@@ -132,7 +132,8 @@ CREATE TABLE IF NOT EXISTS predictions (
     away_id     TEXT NOT NULL,
     lam_h REAL, lam_a REAL, rho REAL,
     p_h REAL, p_d REAL, p_a REAL,
-    pred_h INTEGER NOT NULL, pred_a INTEGER NOT NULL, p_pred REAL,
+    pred_h INTEGER NOT NULL, pred_a INTEGER NOT NULL, p_pred REAL,   -- wahrscheinlichstes Ergebnis
+    tip_h INTEGER, tip_a INTEGER, p_tip REAL,                         -- realistischer Tipp (Haupttipp)
     matrix      TEXT NOT NULL,            -- JSON, 10x10 Wahrscheinlichkeiten (Heim-Zeilen)
     UNIQUE (model, understat_match_id, cutoff_date)
 );
@@ -152,6 +153,14 @@ CREATE TABLE IF NOT EXISTS squad_value_snapshots (
 """
 
 
+# Spalten, die nach der ersten Version hinzukamen: (Tabelle, Spalte, Typ)
+MIGRATIONS = [
+    ("predictions", "tip_h", "INTEGER"),
+    ("predictions", "tip_a", "INTEGER"),
+    ("predictions", "p_tip", "REAL"),
+]
+
+
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
     path = Path(path or config.DB_PATH)
     if str(path) != ":memory:":
@@ -159,6 +168,11 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     con = sqlite3.connect(path, timeout=60)
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript(SCHEMA)
+    for table, col, typ in MIGRATIONS:
+        cols = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        if col not in cols:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    con.commit()
     return con
 
 

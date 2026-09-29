@@ -20,9 +20,9 @@ import pandas as pd
 
 from fussball import config, db
 from fussball.backtest import metrics, walkforward
-from fussball.backtest.run import LGBM_FILE, load_params, model_name
+from fussball.backtest.run import LGBM_FILE, TIP_WEIGHTS_FILE, load_params, model_name
 from fussball.features import form
-from fussball.models import lgbm
+from fussball.models import lgbm, tipping
 from fussball.models.blend import BlendedDixonColes
 from fussball.models.dixon_coles import score_matrix
 from fussball.models.lgbm import LGBMCorrector
@@ -124,13 +124,16 @@ def predict(con: sqlite3.Connection, today: date | None = None,
     if corrector is not None:
         out = lgbm_correct(data, out, corrector)
 
+    weights = tipping.load_weights(TIP_WEIGHTS_FILE)
     rows = []
     for r in out.itertuples():
         m = score_matrix(r.lam_h, r.lam_a, r.rho)
         ph, pd_, pa = metrics.outcome_probs(m)
         i, j = np.unravel_index(np.argmax(m), m.shape)
+        ti, tj = tipping.tip(m, weights)
         rows.append({"p_h": ph, "p_d": pd_, "p_a": pa, "pred_h": int(i), "pred_a": int(j),
-                     "p_pred": float(m[i, j]), "matrix": json.dumps(np.round(m, 6).tolist())})
+                     "p_pred": float(m[i, j]), "tip_h": ti, "tip_a": tj, "p_tip": float(m[ti, tj]),
+                     "matrix": json.dumps(np.round(m, 6).tolist())})
     out = pd.concat([out, pd.DataFrame(rows)], axis=1).assign(
         created_at=created, model=name, cutoff_date=today.isoformat())
     db.upsert(con, "predictions", out.drop(columns=["unknown_team"]),
@@ -150,7 +153,8 @@ def export(pred: pd.DataFrame, today: date, params: dict) -> None:
         "leagues": {
             lg: {"name": config.LEAGUES[lg].name, "matches": [
                 {k: (json.loads(r["matrix"]) if k == "matrix" else r[k]) for k in (
-                    "understat_match_id", "kickoff_utc", "home", "away", "pred_h", "pred_a", "p_pred",
+                    "understat_match_id", "kickoff_utc", "home", "away", "tip_h", "tip_a", "p_tip",
+                    "pred_h", "pred_a", "p_pred",
                     "p_h", "p_d", "p_a", "lam_h", "lam_a", "matrix", "unknown_team")}
                 for r in g.sort_values("kickoff_utc").to_dict("records")]}
             for lg, g in pred.groupby("league")},
@@ -177,6 +181,12 @@ def scorecard(con: sqlite3.Connection) -> pd.DataFrame:
     p = p.sort_values("cutoff_date").drop_duplicates(["model", "understat_match_id"], keep="last")
     for k, v in metrics.hits(p.pred_h, p.pred_a, p.hg, p.ag).items():
         p[k] = v
+    # realistischer Tipp (ältere Vorhersagen ohne Tipp: wahrscheinlichstes Ergebnis)
+    p["tip_h"] = p.tip_h.fillna(p.pred_h).astype(int)
+    p["tip_a"] = p.tip_a.fillna(p.pred_a).astype(int)
+    for k, v in metrics.hits(p.tip_h, p.tip_a, p.hg, p.ag).items():
+        p[f"tip_{k}"] = v
+    p["points"] = metrics.tippspiel_points(p.tip_h, p.tip_a, p.hg, p.ag)
     p["logloss"] = [-np.log(max(json.loads(m)[min(h, 9)][min(a, 9)], 1e-12))
                     for m, h, a in zip(p.matrix, p.hg, p.ag)]
     return p.drop(columns=["matrix"])

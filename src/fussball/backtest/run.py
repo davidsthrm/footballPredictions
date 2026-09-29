@@ -22,9 +22,10 @@ import numpy as np
 import pandas as pd
 
 from fussball import config
-from fussball.backtest import benchmark, report, walkforward
+from fussball.backtest import benchmark, metrics, report, walkforward
 from fussball.features import form
-from fussball.models import lgbm
+from fussball.models import lgbm, tipping
+from fussball.models.dixon_coles import score_matrix
 
 GRID = {
     "xi": [0.0015, 0.002, 0.003],
@@ -37,6 +38,7 @@ DEFAULT_PARAMS = {"xi": 0.002, "reg": 1.0, "w_xg": 0.5, "xi_xg": 0.005}
 PARAMS_FILE = config.REPORT_DIR / "model_params.json"
 COMPARISON_FILE = config.REPORT_DIR / "model_comparison.csv"
 LGBM_FILE = config.REPORT_DIR / "lgbm_model.txt"
+TIP_WEIGHTS_FILE = config.REPORT_DIR / "tip_weights.json"
 
 
 def load_params() -> dict:
@@ -70,6 +72,7 @@ def tune(data: pd.DataFrame, leagues: list[str], seasons: list[int]) -> pd.DataF
 
 
 def evaluate(con: sqlite3.Connection, pred: pd.DataFrame, test_from: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+    pred, _ = walkforward.add_tips(pred)
     p = report.enrich(pred, benchmark.implied_probs(con))
     return p, report.summary(p, test_from)
 
@@ -126,7 +129,8 @@ def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | 
     p, summ = evaluate(con, stacked, test_from)
     _, dc = evaluate(con, dc_pred, test_from)
     _, base = evaluate(con, walkforward.run(data, leagues, seasons, BASELINE_PARAMS), test_from)
-    cols = ["n", "logloss", "rps", "rps_odds", "exact_%", "diff_%", "tend_%", "exact_1:1_%"]
+    cols = ["n", "logloss", "rps", "rps_odds", "exact_%", "diff_%", "tend_%", "pts_argmax",
+            "tip_exact_%", "tip_diff_%", "tip_tend_%", "pts_tip", "tip_draw_%", "exact_1:1_%"]
     test_row = lambda s: s.set_index(["league", "season"]).loc[("ALL", "TEST"), cols].to_dict()
     comparison = pd.DataFrame([
         {"model": model_name(BASELINE_PARAMS), "rolle": "Baseline (nur Tore)", **test_row(base)},
@@ -134,6 +138,13 @@ def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | 
         {"model": model_name(params, with_lgbm=True), "rolle": "aktuell", **test_row(summ)},
     ])
 
+    # Gewichte für Live-Tipps: letzte 3 abgeschlossene Saisons des aktuellen Modells
+    done = sorted(s for s in p.season.unique() if s < config.current_season())[-3:]
+    hist = p[p.season.isin(done)]
+    M = np.stack([score_matrix(r.lam_h, r.lam_a, r.rho) for r in hist.itertuples()])
+    w = tipping.fit_weights(tipping.outcome_matrix_probs(M), metrics.outcome_index(hist.hg, hist.ag))
+    tipping.save_weights(w, TIP_WEIGHTS_FILE, [int(s) for s in done])
+    print(f"Tipp-Gewichte Heim/Remis/Auswärts (aus {done[0]}–{done[-1]}): {np.round(w, 2).tolist()}")
     test = p[p.season >= test_from]
     dist = report.score_distribution(test)
     out = config.REPORT_DIR
@@ -156,8 +167,8 @@ def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | 
           "\n![Verteilung](score_distribution.png)\n"]
     (out / "backtest_report.md").write_text("\n".join(md))
 
-    show = ["league", "season", "n", "logloss", "rps", "rps_model_same", "rps_odds", "exact_%",
-            "diff_%", "tend_%", "exact_1:1_%"]
+    show = ["league", "season", "n", "logloss", "rps", "rps_odds", "exact_%", "tend_%", "pts_argmax",
+            "tip_exact_%", "tip_tend_%", "pts_tip", "tip_draw_%"]
     with pd.option_context("display.width", 220, "display.float_format", "{:.3f}".format):
         print("\nVergleich Test (alle Ligen):")
         print(comparison.drop(columns=["model"]).to_string(index=False))

@@ -30,3 +30,10 @@ def hits(pred_h, pred_a, hg, ag) -> dict[str, np.ndarray]:
         "diff": (pred_h - pred_a) == (hg - ag),
         "tendency": np.sign(pred_h - pred_a) == np.sign(hg - ag),
     }
+
+
+def tippspiel_points(pred_h, pred_a, hg, ag) -> np.ndarray:
+    """Übliches Tippspiel-Schema: 4 exakt, 3 richtige Tordifferenz (Sieg), 2 richtige Tendenz."""
+    h = hits(pred_h, pred_a, hg, ag)
+    winner = np.asarray(pred_h) != np.asarray(pred_a)
+    return np.where(h["exact"], 4, np.where(h["diff"] & winner, 3, np.where(h["tendency"], 2, 0)))

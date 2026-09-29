@@ -146,7 +146,8 @@ def _cell_style(p: float, pmax: float) -> str:
     return f' style="background:{RAMP[k]};color:{fg}"'
 
 
-def matrix_table(m: np.ndarray, home: str, away: str, tip: tuple[int, int]) -> str:
+def matrix_table(m: np.ndarray, home: str, away: str, tip: tuple[int, int],
+                 likely: tuple[int, int] | None = None) -> str:
     n = MATRIX_SHOW
     sub = m[:n, :n]
     pmax = sub.max()
@@ -154,12 +155,14 @@ def matrix_table(m: np.ndarray, home: str, away: str, tip: tuple[int, int]) -> s
     rows = []
     for i in range(n):
         cells = "".join(
-            f"<td{' class=tip' if (i, j) == tip else ''}{_cell_style(sub[i, j], pmax)}>"
+            f"<td{' class=tip' if (i, j) == tip else (' class=likely' if (i, j) == likely else '')}"
+            f"{_cell_style(sub[i, j], pmax)}>"
             f"{_num(100 * sub[i, j]) if sub[i, j] >= 0.0005 else ''}</td>" for j in range(n))
         rows.append(f"<tr><th>{i}</th>{cells}</tr>")
     return (f'<table class="matrix"><thead><tr><th class="corner">↓ {escape(home)}<br>→ {escape(away)}</th>'
             f'{head}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
-            f'<p class="muted small">Wahrscheinlichkeit je Ergebnis in %, umrandet = Tipp</p>')
+            f'<p class="muted small">Wahrscheinlichkeit je Ergebnis in %. Umrandet = Tipp'
+            f'{", gestrichelt = wahrscheinlichstes Einzelergebnis" if likely and likely != tip else ""}</p>')
 
 
 def outcome_bar(ph: float, pd_: float, pa: float) -> str:
@@ -191,21 +194,25 @@ def match_card(r, names: dict, crests: dict, ab: pd.DataFrame, provisional: bool
     n_home = int((ab.team_id == r.home_id).sum())
     n_away = int((ab.team_id == r.away_id).sum())
     uid = r.understat_match_id
+    th, ta = (int(r.tip_h), int(r.tip_a)) if pd.notna(r.tip_h) else (r.pred_h, r.pred_a)
+    p_tend = {1: r.p_h, 0: r.p_d, -1: r.p_a}[int(np.sign(th - ta))]
+    likely = ("" if (th, ta) == (r.pred_h, r.pred_a) else
+              f"<span class='alt'>wahrscheinlichstes Einzelergebnis {r.pred_h}:{r.pred_a}</span>")
     return f"""
 <article class="card">
   <div class="meta"><span>{day} · {time}{'*' if provisional else ''}</span>
-    <span class="chance">Tipp trifft zu {_pct(r.p_pred, 1)}</span></div>
+    <span class="chance">Tendenz {_pct(p_tend)} · exakt {_pct(m[th, ta], 1)}</span></div>
   <div class="fixture">
     <div class="side">{crest(r.home_id, crests, home)}<span class="team">{escape(home)}</span></div>
-    <div class="score"><span class="tip">{r.pred_h}:{r.pred_a}</span>
-      <span class="xg">erw. Tore {_num(r.lam_h)} : {_num(r.lam_a)}</span></div>
+    <div class="score"><span class="tip">{th}:{ta}</span>
+      <span class="xg">erw. Tore {_num(r.lam_h)} : {_num(r.lam_a)}</span>{likely}</div>
     <div class="side">{crest(r.away_id, crests, away)}<span class="team">{escape(away)}</span></div>
   </div>
   {outcome_bar(r.p_h, r.p_d, r.p_a)}
   <input type="checkbox" id="m{uid}" class="tg tg-m"><input type="checkbox" id="a{uid}" class="tg tg-a">
   <div class="toggles"><label for="m{uid}" class="lm">Ergebnismatrix</label>
     <label for="a{uid}" class="la">Ausfälle {n_home} · {n_away}</label></div>
-  <div class="panel pm">{matrix_table(m, home, away, (r.pred_h, r.pred_a))}</div>
+  <div class="panel pm">{matrix_table(m, home, away, (th, ta), (r.pred_h, r.pred_a))}</div>
   <div class="panel pa"><div class="abs">{absence_list(ab, r.home_id, home)}{absence_list(ab, r.away_id, away)}</div></div>
 </article>"""
 
@@ -230,42 +237,47 @@ def scorecard_section(sc: pd.DataFrame, names: dict) -> str:
                 "ausgewerteten Spiele – die Bilanz füllt sich, sobald vorhergesagte Spiele gespielt sind.</p></section>")
     rows = []
     for lg, g in [("Alle Ligen", sc)] + [(config.LEAGUES[k].name, v) for k, v in sc.groupby("league")]:
-        rows.append(f"<tr><td>{escape(lg)}</td><td>{len(g)}</td><td>{_pct(g.exact.mean(), 1)}</td>"
-                    f"<td>{_pct(g['diff'].mean(), 1)}</td><td>{_pct(g.tendency.mean(), 1)}</td></tr>")
+        rows.append(f"<tr><td>{escape(lg)}</td><td>{len(g)}</td><td>{_pct(g.tip_exact.mean(), 1)}</td>"
+                    f"<td>{_pct(g.tip_tendency.mean(), 1)}</td><td>{int(g.points.sum())}</td></tr>")
     recent = "".join(
-        f"<li><span class='mark {'ok' if r.exact else ('half' if r.tendency else 'no')}'>"
-        f"{'✓' if r.exact else ('≈' if r.tendency else '✗')}</span>"
+        f"<li><span class='mark {'ok' if r.tip_exact else ('half' if r.tip_tendency else 'no')}'>"
+        f"{'✓' if r.tip_exact else ('≈' if r.tip_tendency else '✗')}</span>"
         f"{escape(names.get(r.home_id, r.home_id))} – {escape(names.get(r.away_id, r.away_id))}"
-        f"<span class='muted'> Tipp {r.pred_h}:{r.pred_a} · Ergebnis {r.hg}:{r.ag}</span></li>"
+        f"<span class='muted'> Tipp {r.tip_h}:{r.tip_a} · Ergebnis {r.hg}:{r.ag} · {r.points} P.</span></li>"
         for r in sc.sort_values("kickoff_utc").tail(10).iloc[::-1].itertuples())
     return f"""<section id="bilanz" class="plain"><h2>Live-Bilanz</h2>
-<table class="stats"><thead><tr><th>Liga</th><th>Spiele</th><th>Exakt</th><th>Tordiff.</th><th>Tendenz</th></tr></thead>
+<table class="stats"><thead><tr><th>Liga</th><th>Spiele</th><th>Exakt</th><th>Tendenz</th><th>Punkte</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table>
 <input type="checkbox" id="recent" class="tg tg-r"><div class="toggles"><label for="recent" class="lr">Letzte 10 Spiele</label></div>
-<div class="panel pr"><ul class="recent">{recent}</ul><p class="muted small">✓ exakt · ≈ Tendenz richtig · ✗ falsch</p></div></section>"""
+<div class="panel pr"><ul class="recent">{recent}</ul><p class="muted small">✓ exakt · ≈ Tendenz richtig · ✗ falsch ·
+Punkte: 4 exakt, 3 Tordifferenz, 2 Tendenz</p></div></section>"""
 
 
 def backtest_section(cmp: pd.DataFrame | None, model: str | None) -> str:
-    if cmp is None or "aktuell" not in cmp.index:
+    if cmp is None or "aktuell" not in cmp.index or "pts_tip" not in cmp.columns:
         return ""
-    a, b = cmp.loc["aktuell"], cmp.loc["Baseline (nur Tore)"]
+    a = cmp.loc["aktuell"]
+    label = {"aktuell": "Tore + xG + LightGBM (aktuell)"}
     steps = "".join(
-        f"<tr><td>{escape('Tore + xG + LightGBM (aktuell)' if role == 'aktuell' else role)}</td><td>{_num(r['exact_%'])} %</td><td>{_num(r['tend_%'])} %</td>"
-        f"<td>{_num(r['logloss'], 3)}</td></tr>" for role, r in cmp.iterrows())
-    steps = (f'<table class="stats"><thead><tr><th>Modell</th><th>Exakt</th><th>Tendenz</th>'
-             f'<th>Log-Loss</th></tr></thead><tbody>{steps}</tbody></table>')
+        f"<tr><td>{escape(label.get(role, role))}</td><td>{_num(r['tip_exact_%'])} %</td>"
+        f"<td>{_num(r['tip_tend_%'])} %</td><td>{_num(r['pts_tip'], 2)}</td></tr>" for role, r in cmp.iterrows())
     return f"""<section id="modell" class="plain"><h2>Einordnung</h2>
 <p class="muted small">{escape(describe_model(model))}. Backtest ab 2019/20 · {_num(a['n'], 0)} Spiele,
 jeweils nur mit Daten bis zum Vortag.</p>
 <div class="kpis">
-  <div><strong>{_num(a['exact_%'])} %</strong><span>exakte Treffer</span></div>
-  <div><strong>{_num(a['tend_%'])} %</strong><span>Tendenz richtig</span></div>
-  <div><strong>{_num(b['exact_%'])} %</strong><span>bisheriges Modell (nur Tore)</span></div>
-  <div><strong>{_num(a['exact_1:1_%'])} %</strong><span>zum Vergleich: immer 1:1</span></div>
+  <div><strong>{_num(a['tip_tend_%'])} %</strong><span>Tendenz richtig</span></div>
+  <div><strong>{_num(a['tip_exact_%'])} %</strong><span>exakte Treffer</span></div>
+  <div><strong>{_num(a['pts_tip'], 2)}</strong><span>Tippspiel-Punkte pro Spiel (4/3/2)</span></div>
+  <div><strong>{_num(a['tip_draw_%'], 0)} %</strong><span>Remis-Tipps (real ca. 25 %)</span></div>
 </div>
-{steps}
-<p class="muted small">Log-Loss {_num(a['logloss'], 3)} (nur Tore {_num(b['logloss'], 3)}) · RPS {_num(a['rps'], 3)}
-(nur Tore {_num(b['rps'], 3)}, Wettmarkt {_num(a['rps_odds'], 3)}) – jeweils kleiner = besser.</p></section>"""
+<p class="muted small"><strong>Tipp-Strategie:</strong> erst der Ausgang (Sieg/Remis/Niederlage), dann das
+wahrscheinlichste Ergebnis dazu – so verteilen sich die Tipps wie echte Ergebnisse. Nur das wahrscheinlichste
+Einzelergebnis zu tippen brächte {_num(a['exact_%'])} % exakte Treffer, aber nur {_num(a['tend_%'])} % richtige
+Tendenzen und {_num(a['pts_argmax'], 2)} Punkte pro Spiel (meist 1:1).</p>
+<table class="stats"><thead><tr><th>Modell</th><th>Exakt</th><th>Tendenz</th><th>Punkte</th></tr></thead>
+<tbody>{steps}</tbody></table>
+<p class="muted small">Log-Loss {_num(a['logloss'], 3)} · RPS {_num(a['rps'], 3)} (Wettmarkt {_num(a['rps_odds'], 3)})
+– jeweils kleiner = besser.</p></section>"""
 
 
 CSS = """
@@ -320,7 +332,7 @@ border-radius:10px;padding:8px 6px;cursor:pointer;user-select:none;-webkit-user-
 .matrix th{color:var(--muted);font-weight:600;padding:3px;font-size:11px}
 .matrix th.corner{text-align:left;font-weight:400;font-size:10px;line-height:1.2;width:28%;overflow-wrap:anywhere}
 .matrix td{text-align:center;padding:6px 1px;border:2px solid var(--surface);border-radius:4px}
-.matrix td.tip{outline:2px solid var(--text);outline-offset:-2px;font-weight:800}
+.matrix td.tip{outline:2px solid var(--text);outline-offset:-2px;font-weight:800}.matrix td.likely{outline:2px dashed var(--muted);outline-offset:-2px}.alt{font-size:10px;color:var(--muted);margin-top:2px;text-align:center;line-height:1.2;max-width:110px}
 .abs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .abs-team{font-weight:700;margin:0 0 4px;font-size:13px}
 .abs ul{margin:0;padding:0;list-style:none;font-size:12px}.abs li{padding:4px 0;border-top:1px solid var(--line)}
