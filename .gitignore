@@ -1,0 +1,17 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Daten (Cache, DB, Reports) – nie committen
+data/
+*.sqlite
+*.sqlite-journal
+
+# Secrets
+.env
+
+# OS / Editor
+.DS_Store
+.ipynb_checkpoints/

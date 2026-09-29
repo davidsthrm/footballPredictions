@@ -1,0 +1,269 @@
+source,source_name,team_id
+transfermarkt,Deportivo Alavés,alaves
+transfermarkt,Angers SCO,angers
+transfermarkt,FC Arsenal,arsenal
+transfermarkt,Aston Villa,aston-villa
+transfermarkt,Atalanta Bergamo,atalanta
+transfermarkt,Athletic Bilbao,ath-bilbao
+transfermarkt,Atlético Madrid,ath-madrid
+transfermarkt,FC Augsburg,augsburg
+transfermarkt,AJ Auxerre,auxerre
+transfermarkt,FC Barcelona,barcelona
+transfermarkt,FC Bayern München,bayern-munich
+transfermarkt,Real Betis Sevilla,betis
+transfermarkt,FC Bologna,bologna
+transfermarkt,AFC Bournemouth,bournemouth
+transfermarkt,FC Brentford,brentford
+transfermarkt,Stade Brest 29,brest
+transfermarkt,Brighton & Hove Albion,brighton
+transfermarkt,Cagliari Calcio,cagliari
+transfermarkt,Celta Vigo,celta
+transfermarkt,FC Chelsea,chelsea
+transfermarkt,Como 1907,como
+transfermarkt,Coventry City,coventry
+transfermarkt,Crystal Palace,crystal-palace
+transfermarkt,Borussia Dortmund,dortmund
+transfermarkt,Eintracht Frankfurt,ein-frankfurt
+transfermarkt,FC Elche,elche
+transfermarkt,SV 07 Elversberg,elversberg
+transfermarkt,Espanyol Barcelona,espanol
+transfermarkt,FC Everton,everton
+transfermarkt,1.FC Köln,fc-koln
+transfermarkt,AC Florenz,fiorentina
+transfermarkt,SC Freiburg,freiburg
+transfermarkt,Frosinone Calcio,frosinone
+transfermarkt,FC Fulham,fulham
+transfermarkt,Genua CFC,genoa
+transfermarkt,FC Getafe,getafe
+transfermarkt,Hamburger SV,hamburg
+transfermarkt,TSG 1899 Hoffenheim,hoffenheim
+transfermarkt,Hull City,hull
+transfermarkt,Inter Mailand,inter
+transfermarkt,Ipswich Town,ipswich
+transfermarkt,Juventus Turin,juventus
+transfermarkt,Deportivo A Coruña,la-coruna
+transfermarkt,Lazio Rom,lazio
+transfermarkt,Le Havre AC,le-havre
+transfermarkt,FC Le Mans,le-mans
+transfermarkt,US Lecce,lecce
+transfermarkt,Leeds United,leeds
+transfermarkt,RC Lens,lens
+transfermarkt,UD Levante,levante
+transfermarkt,Bayer 04 Leverkusen,leverkusen
+transfermarkt,LOSC Lille,lille
+transfermarkt,FC Liverpool,liverpool
+transfermarkt,FC Lorient,lorient
+transfermarkt,Olympique Lyon,lyon
+transfermarkt,Borussia Mönchengladbach,m-gladbach
+transfermarkt,1.FSV Mainz 05,mainz
+transfermarkt,FC Málaga,malaga
+transfermarkt,Manchester City,man-city
+transfermarkt,Manchester United,man-united
+transfermarkt,Olympique Marseille,marseille
+transfermarkt,AC Mailand,milan
+transfermarkt,AS Monaco,monaco
+transfermarkt,AC Monza,monza
+transfermarkt,SSC Neapel,napoli
+transfermarkt,Newcastle United,newcastle
+transfermarkt,OGC Nizza,nice
+transfermarkt,Nottingham Forest,nott-m-forest
+transfermarkt,CA Osasuna,osasuna
+transfermarkt,SC Paderborn 07,paderborn
+transfermarkt,Paris FC,paris-fc
+transfermarkt,Paris Saint-Germain,paris-sg
+transfermarkt,Parma Calcio 1913,parma
+transfermarkt,RB Leipzig,rb-leipzig
+transfermarkt,Real Madrid,real-madrid
+transfermarkt,FC Stade Rennes,rennes
+transfermarkt,AS Rom,roma
+transfermarkt,Racing Santander,santander
+transfermarkt,US Sassuolo,sassuolo
+transfermarkt,FC Schalke 04,schalke-04
+transfermarkt,FC Sevilla,sevilla
+transfermarkt,Real Sociedad San Sebastián,sociedad
+transfermarkt,Racing Straßburg,strasbourg
+transfermarkt,VfB Stuttgart,stuttgart
+transfermarkt,AFC Sunderland,sunderland
+transfermarkt,FC Turin,torino
+transfermarkt,Tottenham Hotspur,tottenham
+transfermarkt,FC Toulouse,toulouse
+transfermarkt,ESTAC Troyes,troyes
+transfermarkt,Udinese Calcio,udinese
+transfermarkt,1.FC Union Berlin,union-berlin
+transfermarkt,FC Valencia,valencia
+transfermarkt,Rayo Vallecano,vallecano
+transfermarkt,Venezia FC,venezia
+transfermarkt,FC Villarreal,villarreal
+transfermarkt,SV Werder Bremen,werder-bremen
+understat,Ajaccio,ajaccio
+understat,GFC Ajaccio,ajaccio-gfco
+understat,Alaves,alaves
+understat,Almeria,almeria
+understat,Amiens,amiens
+understat,Angers,angers
+understat,Arsenal,arsenal
+understat,Aston Villa,aston-villa
+understat,Atalanta,atalanta
+understat,Athletic Club,ath-bilbao
+understat,Atletico Madrid,ath-madrid
+understat,Augsburg,augsburg
+understat,Auxerre,auxerre
+understat,Barcelona,barcelona
+understat,SC Bastia,bastia
+understat,Bayern Munich,bayern-munich
+understat,Benevento,benevento
+understat,Real Betis,betis
+understat,Arminia Bielefeld,bielefeld
+understat,Bochum,bochum
+understat,Bologna,bologna
+understat,Bordeaux,bordeaux
+understat,Bournemouth,bournemouth
+understat,Brentford,brentford
+understat,Brescia,brescia
+understat,Brest,brest
+understat,Brighton,brighton
+understat,Burnley,burnley
+understat,Cadiz,cadiz
+understat,Caen,caen
+understat,Cagliari,cagliari
+understat,Cardiff,cardiff
+understat,Carpi,carpi
+understat,Celta Vigo,celta
+understat,Cesena,cesena
+understat,Chelsea,chelsea
+understat,Chievo,chievo
+understat,Clermont Foot,clermont
+understat,Como,como
+understat,Cordoba,cordoba
+understat,Coventry,coventry
+understat,Cremonese,cremonese
+understat,Crotone,crotone
+understat,Crystal Palace,crystal-palace
+understat,Darmstadt,darmstadt
+understat,Dijon,dijon
+understat,Borussia Dortmund,dortmund
+understat,Eibar,eibar
+understat,Eintracht Frankfurt,ein-frankfurt
+understat,Elche,elche
+understat,Elversberg,elversberg
+understat,Empoli,empoli
+understat,Espanyol,espanol
+understat,Everton,everton
+understat,Evian Thonon Gaillard,evian-thonon-gaillard
+understat,FC Cologne,fc-koln
+understat,Fiorentina,fiorentina
+understat,Fortuna Duesseldorf,fortuna-dusseldorf
+understat,Freiburg,freiburg
+understat,Frosinone,frosinone
+understat,Fulham,fulham
+understat,Genoa,genoa
+understat,Getafe,getafe
+understat,Girona,girona
+understat,Granada,granada
+understat,Greuther Fuerth,greuther-furth
+understat,Guingamp,guingamp
+understat,Hamburger SV,hamburg
+understat,Hannover 96,hannover
+understat,FC Heidenheim,heidenheim
+understat,Hertha Berlin,hertha
+understat,Hoffenheim,hoffenheim
+understat,Holstein Kiel,holstein-kiel
+understat,Huddersfield,huddersfield
+understat,SD Huesca,huesca
+understat,Hull,hull
+understat,Ingolstadt,ingolstadt
+understat,Inter,inter
+understat,Ipswich,ipswich
+understat,Juventus,juventus
+understat,Deportivo La Coruna,la-coruna
+understat,Las Palmas,las-palmas
+understat,Lazio,lazio
+understat,Le Havre,le-havre
+understat,Le Mans,le-mans
+understat,Lecce,lecce
+understat,Leeds,leeds
+understat,Leganes,leganes
+understat,Leicester,leicester
+understat,Lens,lens
+understat,Levante,levante
+understat,Bayer Leverkusen,leverkusen
+understat,Lille,lille
+understat,Liverpool,liverpool
+understat,Lorient,lorient
+understat,Luton,luton
+understat,Lyon,lyon
+understat,Borussia M.Gladbach,m-gladbach
+understat,Mainz 05,mainz
+understat,Malaga,malaga
+understat,Mallorca,mallorca
+understat,Manchester City,man-city
+understat,Manchester United,man-united
+understat,Marseille,marseille
+understat,Metz,metz
+understat,Middlesbrough,middlesbrough
+understat,AC Milan,milan
+understat,Monaco,monaco
+understat,Montpellier,montpellier
+understat,Monza,monza
+understat,Nancy,nancy
+understat,Nantes,nantes
+understat,Napoli,napoli
+understat,Newcastle United,newcastle
+understat,Nice,nice
+understat,Nimes,nimes
+understat,Norwich,norwich
+understat,Nottingham Forest,nott-m-forest
+understat,Nuernberg,nurnberg
+understat,Osasuna,osasuna
+understat,Real Oviedo,oviedo
+understat,Paderborn,paderborn
+understat,Palermo,palermo
+understat,Paris FC,paris-fc
+understat,Paris Saint Germain,paris-sg
+understat,Parma,parma
+understat,Parma Calcio 1913,parma
+understat,Pescara,pescara
+understat,Pisa,pisa
+understat,Queens Park Rangers,qpr
+understat,RasenBallsport Leipzig,rb-leipzig
+understat,Real Madrid,real-madrid
+understat,Reims,reims
+understat,Rennes,rennes
+understat,Roma,roma
+understat,Salernitana,salernitana
+understat,Sampdoria,sampdoria
+understat,Racing Santander,santander
+understat,Sassuolo,sassuolo
+understat,Schalke 04,schalke-04
+understat,Sevilla,sevilla
+understat,Sheffield United,sheffield-united
+understat,Real Sociedad,sociedad
+understat,Southampton,southampton
+understat,Sporting Gijon,sp-gijon
+understat,SPAL 2013,spal
+understat,Spezia,spezia
+understat,Saint-Etienne,st-etienne
+understat,St. Pauli,st-pauli
+understat,Stoke,stoke
+understat,Strasbourg,strasbourg
+understat,VfB Stuttgart,stuttgart
+understat,Sunderland,sunderland
+understat,Swansea,swansea
+understat,Torino,torino
+understat,Tottenham,tottenham
+understat,Toulouse,toulouse
+understat,Troyes,troyes
+understat,Udinese,udinese
+understat,Union Berlin,union-berlin
+understat,Valencia,valencia
+understat,Real Valladolid,valladolid
+understat,Rayo Vallecano,vallecano
+understat,Venezia,venezia
+understat,Verona,verona
+understat,Villarreal,villarreal
+understat,Watford,watford
+understat,Werder Bremen,werder-bremen
+understat,West Bromwich Albion,west-brom
+understat,West Ham,west-ham
+understat,Wolfsburg,wolfsburg
+understat,Wolverhampton Wanderers,wolves

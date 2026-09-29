@@ -1,0 +1,35 @@
+[project]
+name = "fussball"
+version = "0.1.0"
+description = "Exakte Ergebnisvorhersage Top-5-Ligen (Dixon-Coles-Baseline, Walk-forward)"
+readme = "README.md"
+authors = [
+    { name = "dazzlingdolphin", email = "david.stuehrmann@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4>=4.15.0",
+    "lightgbm>=4.7.0",
+    "matplotlib>=3.11.2",
+    "pandas>=3.0.6",
+    "requests>=2.34.2",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.18.1",
+]
+
+[project.scripts]
+fussball = "fussball.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["network: braucht Internet (standardmäßig übersprungen, mit -m network ausführen)"]
