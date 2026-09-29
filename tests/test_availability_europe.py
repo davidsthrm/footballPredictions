@@ -70,3 +70,21 @@ def test_team_absences_uses_last_snapshot_before_match(con):
     per_team, players = av.team_absences(con, "2026-10-10", 2026)
     assert players.player.tolist() == ["Max Stürmer"]
     assert per_team.missing_att.iloc[0] == pytest.approx(6.0 / 11.0)
+
+
+def test_squad_values_use_previous_season_only(con):
+    from fussball.ingest import squad_values
+    teams.register_canonical(con, {"Alpha": "GER", "Beta": "GER"})
+    con.executescript(squad_values.SCHEMA)
+    db.upsert(con, "team_name_map", [{"source": "transfermarkt_id", "source_name": "1", "team_id": "alpha"},
+                                     {"source": "transfermarkt_id", "source_name": "2", "team_id": "beta"}],
+              key=["source", "source_name"])
+    db.upsert(con, "squad_values_history", [
+        {"season": 2023, "league": "D1", "tm_club_id": 1, "total_value_eur": 400e6},
+        {"season": 2023, "league": "D1", "tm_club_id": 2, "total_value_eur": 100e6},
+        {"season": 2024, "league": "D1", "tm_club_id": 1, "total_value_eur": 900e6}],   # nach Saisonverlauf
+        key=["season", "league", "tm_club_id"])
+    tv = squad_values.team_values(con).set_index(["team_id", "season"])
+    assert tv.loc[("alpha", 2024), "mv_log"] == pytest.approx(np.log(400))     # Wert der Vorsaison
+    assert tv.loc[("alpha", 2024), "mv_rel"] == pytest.approx(np.log(400) - (np.log(400) + np.log(100)) / 2)
+    assert ("alpha", 2023) not in tv.index

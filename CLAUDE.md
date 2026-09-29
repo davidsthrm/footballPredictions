@@ -31,6 +31,7 @@ uv run fussball ingest football-data           # Ergebnisse + Statistik, 1. und 
 uv run fussball ingest understat [--suggest]   # xG; --suggest schlägt Teamnamen vor
 uv run fussball ingest clubelo [--suggest]     # Elo-Historien der gemappten Vereine
 uv run fussball ingest europe [--suggest]      # Europapokal-Termine (Transfermarkt)
+uv run fussball ingest squad-values [--suggest] # Kaderwerte abgeschlossener Saisons (1. + 2. Ligen)
 uv run fussball snapshot transfermarkt         # täglicher Snapshot Verletzungen/Sperren
 uv run fussball teams                          # data_seed/team_name_map.csv -> DB
 uv run fussball check [-v]                     # Datenqualität, Exit 1 bei ERROR
@@ -100,4 +101,10 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
   Außerdem (2026-09-30): npxG statt xG (schlechter: Elfmeter sind teils Können),
   teamspezifischer Heimvorteil mit L2 (schlechter, auch stark regularisiert),
   realistische Tordifferenz-Verteilung der Tipps (−0,8 Pp. exakt, −2,4 Pp. Tordifferenz).
+  Weitere LightGBM-Kandidaten ohne robusten Gewinn (Validierung schlechter, Test n.s.):
+  Aufsteiger-Flag, Englische Woche, Schiedsrichter (nur E0), Tage seit Trainerwechsel,
+  Kaderwert der Vorsaison (`ingest/squad_values.py`, Tabelle squad_values_history; hilft im
+  Test am Saisonbeginn, auf der Validierung nicht → in einem Jahr mit mehr Saisons erneut prüfen).
+  Kaderwerte vergangener Saisons auf Transfermarkt sind Werte NACH dem Saisonverlauf →
+  immer nur die Vorsaison verwenden.
 - Code und Kommentare auf Deutsch, Bezeichner auf Englisch.
