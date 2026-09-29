@@ -80,3 +80,23 @@ def test_fit_ignores_matches_on_or_after_cutoff():
     b = DixonColes(xi=0.002).fit(poisoned, cutoff).params_
     assert a["attack"] == pytest.approx(b["attack"])
     assert a["n_matches"] == (df.date < cutoff).sum()
+
+
+def test_blend_without_xg_equals_goals_model_and_uses_xg():
+    from fussball.models.blend import BlendedDixonColes
+    df, _, _ = synthetic_league(n_teams=6, seasons=2, seed=4)
+    cutoff = df.date.max() + pd.Timedelta(days=1)
+    df["xg_h"], df["xg_a"] = np.nan, np.nan
+    plain = DixonColes(xi=0.002, reg=1.0).fit(df, cutoff)
+    blend0 = BlendedDixonColes(xi=0.002, reg=1.0, w_xg=0.0).fit(df, cutoff)
+    assert blend0.rates("T0", "T1") == pytest.approx(plain.rates("T0", "T1"))
+
+    # xG sagt: T0 ist viel stärker als die Tore vermuten lassen -> höheres λ für T0
+    df.loc[df.home == "T0", "xg_h"] = 3.0
+    df.loc[df.away == "T0", "xg_a"] = 3.0
+    blend = BlendedDixonColes(xi=0.002, reg=1.0, w_xg=0.5, xi_xg=0.005).fit(df, cutoff)
+    assert blend.rates("T0", "T1")[0] > plain.rates("T0", "T1")[0]
+    assert blend.rho == pytest.approx(plain.params_["rho"])
+    assert blend.xg.params_["rho"] == 0.0
+    m = blend.predict_matrix("T0", "T1")
+    assert m.sum() == pytest.approx(1.0)

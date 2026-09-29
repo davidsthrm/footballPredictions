@@ -43,7 +43,10 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
 - `src/fussball/config.py` Ligen, Saisons (Startjahr: 2014 = 2014/15), Pfade
 - `db.py` Schema + `upsert` (idempotent); `teams.py` Namens-Mapping
 - `ingest/` je Quelle ein Modul: `fetch`/`parse`/`store`/`ingest`
-- `models/dixon_coles.py` Baseline; `backtest/` Walk-forward, Metriken, Report, Benchmark
+- `models/dixon_coles.py` Dixon-Coles; `models/blend.py` aktuelles Modell: Dixon-Coles auf
+  Toren + Dixon-Coles auf xG (eigener, stärkerer Time-Decay), log-λ gewichtet gemischt
+- `backtest/` Walk-forward, Metriken, Report, Benchmark; Parameter in
+  data/reports/model_params.json (per `backtest --tune` nur auf Validierung gewählt)
 - `data/` ist gitignored (Cache, `fussball.sqlite`, Reports); `data_seed/` ist kuratiert
   und committet.
 
@@ -63,4 +66,6 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
 - Anzeigenamen deutsch über `data_seed/team_display_names.csv` (Aufsteiger ergänzen);
   Liga-Farben in `dashboard.THEMES`; Wappen/Logos von Transfermarkt, einmalig gecacht
   unter data/raw/transfermarkt/{crests,logos}/ und base64 eingebettet.
+- Entscheidungsregel bleibt argmax der Matrix (optimal für exakte Treffer bei kalibrierter
+  Matrix). Nachträgliche Zell-Kalibrierung getestet (2026-09-29): kein Gewinn, verworfen.
 - Code und Kommentare auf Deutsch, Bezeichner auf Englisch.

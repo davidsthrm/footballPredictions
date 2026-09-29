@@ -41,11 +41,15 @@ class DixonColes:
     xi: float = 0.002          # Time-Decay pro Tag
     reg: float = 1.0           # L2-Stärke auf α/β
     window_days: int = 3 * 365
+    fit_rho: bool = True       # False: reines Poisson (z.B. für xG als Zielgröße)
     params_: dict = field(default_factory=dict, repr=False)
 
     # --- Fit -------------------------------------------------------------------------------
     def fit(self, df: pd.DataFrame, cutoff: pd.Timestamp, warm_start: DixonColes | None = None) -> DixonColes:
-        """df: Spalten date (Timestamp), home, away, hg, ag, tier. Nutzt nur date < cutoff."""
+        """df: Spalten date (Timestamp), home, away, hg, ag, tier. Nutzt nur date < cutoff.
+
+        hg/ag dürfen nicht-ganzzahlig sein (z.B. xG): Poisson-Quasi-Likelihood.
+        """
         d = df[(df.date < cutoff) & (df.date >= cutoff - pd.Timedelta(days=self.window_days))]
         if d.empty:
             raise ValueError("Keine Trainingsdaten vor dem Cutoff")
@@ -115,7 +119,9 @@ class DixonColes:
             grad[i_r] = -(w * dr).sum()
             return f, grad
 
-        bounds = [(None, None)] * i_r + [RHO_BOUNDS]
+        bounds = [(None, None)] * i_r + [RHO_BOUNDS if self.fit_rho else (0.0, 0.0)]
+        if not self.fit_rho:
+            x0[i_r] = 0.0
         res = minimize(obj, x0, jac=True, method="L-BFGS-B", bounds=bounds,
                        options={"maxiter": 500, "gtol": 1e-6})
         th = res.x

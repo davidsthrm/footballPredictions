@@ -1,9 +1,12 @@
-"""`fussball backtest`: ξ/Regularisierung tunen (nur Validierungssaisons) und Report erzeugen.
+"""`fussball backtest`: Modellparameter tunen (nur Validierungssaisons) und Report erzeugen.
 
 Zeitliche Aufteilung (fest, um Leakage durch Tuning zu vermeiden):
   2014/15–2015/16  Burn-in (nur Trainingsdaten)
-  2016/17–test_from-1  Validierung (Tuning von ξ und reg)
+  2016/17–test_from-1  Validierung (Tuning)
   ab test_from      Test (berichtete Zahlen)
+
+Modell: BlendedDixonColes (Tore + xG). Zum Vergleich läuft immer auch die reine
+Tor-Baseline mit; Ergebnis in model_comparison.csv.
 """
 
 from __future__ import annotations
@@ -19,10 +22,16 @@ import pandas as pd
 from fussball import config
 from fussball.backtest import benchmark, report, walkforward
 
-XI_GRID = [0.0, 0.001, 0.0015, 0.002, 0.0025, 0.003, 0.004, 0.006]
-REG_GRID = [0.3, 1.0, 3.0]
-DEFAULT_PARAMS = {"xi": 0.002, "reg": 1.0}
-PARAMS_FILE = config.REPORT_DIR / "dixon_coles_params.json"
+GRID = {
+    "xi": [0.0015, 0.002, 0.003],
+    "reg": [0.5, 1.0, 2.0],
+    "w_xg": [0.4, 0.5, 0.6, 0.7],
+    "xi_xg": [0.004, 0.005, 0.007],
+}
+BASELINE_PARAMS = {"xi": 0.002, "reg": 1.0, "w_xg": 0.0}
+DEFAULT_PARAMS = {"xi": 0.002, "reg": 1.0, "w_xg": 0.5, "xi_xg": 0.005}
+PARAMS_FILE = config.REPORT_DIR / "model_params.json"
+COMPARISON_FILE = config.REPORT_DIR / "model_comparison.csv"
 
 
 def load_params() -> dict:
@@ -30,17 +39,35 @@ def load_params() -> dict:
     return json.loads(PARAMS_FILE.read_text()) if PARAMS_FILE.exists() else dict(DEFAULT_PARAMS)
 
 
+def model_name(p: dict) -> str:
+    if not p.get("w_xg"):
+        return f"dixon-coles xi={p['xi']} reg={p['reg']}"
+    return f"dc+xg xi={p['xi']} reg={p['reg']} w_xg={p['w_xg']} xi_xg={p['xi_xg']}"
+
+
+def _half_life(xi: float) -> str:
+    return f"{np.log(2) / xi / 30.4:.0f} Monate" if xi else "∞"
+
+
 def tune(data: pd.DataFrame, leagues: list[str], seasons: list[int]) -> pd.DataFrame:
-    grid = list(itertools.product(XI_GRID, REG_GRID))
+    grid = [dict(zip(GRID, v)) for v in itertools.product(*GRID.values())] + [BASELINE_PARAMS]
     with ProcessPoolExecutor() as ex:
-        futs = {(xi, reg, lg): ex.submit(walkforward.predict_league, data, lg, seasons, xi, reg)
-                for xi, reg in grid for lg in leagues}
+        futs = {(i, lg): ex.submit(walkforward.predict_league, data, lg, seasons, p)
+                for i, p in enumerate(grid) for lg in leagues}
         res = {k: f.result() for k, f in futs.items()}
     rows = []
-    for xi, reg in grid:
-        p = pd.concat([res[(xi, reg, lg)] for lg in leagues])
-        rows.append({"xi": xi, "reg": reg, "n": len(p), "logloss": float(-np.log(p.p_actual).mean())})
+    for i, p in enumerate(grid):
+        d = pd.concat([res[(i, lg)] for lg in leagues])
+        rows.append({**p, "n": len(d), "logloss": float(-np.log(d.p_actual).mean()),
+                     "exact_%": 100 * float(((d.pred_h == d.hg) & (d.pred_a == d.ag)).mean())})
     return pd.DataFrame(rows).sort_values("logloss")
+
+
+def evaluate(con: sqlite3.Connection, data: pd.DataFrame, leagues: list[str], seasons: list[int],
+             params: dict, test_from: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+    pred = walkforward.run(data, leagues, seasons, params)
+    p = report.enrich(pred, benchmark.implied_probs(con))
+    return p, report.summary(p, test_from)
 
 
 def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | None = None,
@@ -57,47 +84,55 @@ def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | 
         print(f"Tuning auf Validierung {valid[0]}–{valid[-1]} (Log-Loss, kleiner = besser):")
         print(grid.head(8).to_string(index=False))
         best = grid.iloc[0]
-        params = {"xi": float(best.xi), "reg": float(best.reg), "tuned_on": valid}
+        params = {k: float(best[k]) for k in GRID if pd.notna(best.get(k))}
+        params["tuned_on"] = valid
         PARAMS_FILE.write_text(json.dumps(params, indent=1))
     else:
         params = load_params()
     if xi is not None:
         params["xi"] = xi
-    print(f"\nParameter: ξ = {params['xi']}/Tag (Halbwertszeit "
-          f"{np.log(2) / params['xi'] / 365:.1f} J.), reg = {params['reg']}" if params["xi"] else
-          f"\nParameter: ξ = 0 (kein Decay), reg = {params['reg']}")
+    print(f"\nModell: {model_name(params)}  (Halbwertszeit Tore {_half_life(params['xi'])}"
+          + (f", xG {_half_life(params['xi_xg'])})" if params.get("w_xg") else ")"))
 
     seasons = list(range(first_eval, config.current_season() + 1))
-    pred = walkforward.run(data, leagues, seasons, params["xi"], params["reg"])
-    p = report.enrich(pred, benchmark.implied_probs(con))
-    summ = report.summary(p, test_from)
+    p, summ = evaluate(con, data, leagues, seasons, params, test_from)
+    _, base = evaluate(con, data, leagues, seasons, BASELINE_PARAMS, test_from)
+    cols = ["n", "logloss", "rps", "rps_odds", "exact_%", "diff_%", "tend_%", "exact_1:1_%"]
+    comparison = pd.DataFrame([
+        {"model": model_name(BASELINE_PARAMS), "rolle": "Baseline (nur Tore)",
+         **base.set_index(["league", "season"]).loc[("ALL", "TEST"), cols].to_dict()},
+        {"model": model_name(params), "rolle": "aktuell",
+         **summ.set_index(["league", "season"]).loc[("ALL", "TEST"), cols].to_dict()},
+    ])
+
     test = p[p.season >= test_from]
     dist = report.score_distribution(test)
-
     out = config.REPORT_DIR
     p.to_csv(out / "backtest_predictions.csv", index=False)
     summ.to_csv(out / "backtest_summary.csv", index=False)
+    comparison.to_csv(COMPARISON_FILE, index=False)
     dist.to_csv(out / "score_distribution.csv", index=False)
     report.plot_distribution(dist, out / "score_distribution.png",
                              f"Ergebnisverteilung Testzeitraum ab {config.season_label(test_from)} "
                              f"({len(test):,} Spiele)")
     headline = summ[summ.season.isin(["TEST", "VALID"])].sort_values(["season", "league"])
-    md = [f"# Backtest Dixon-Coles-Baseline\n",
-          f"ξ = {params['xi']}, reg = {params['reg']}, Validierung {valid[0]}–{valid[-1]}, "
-          f"Test ab {test_from}. Log-Loss auf 10×10-Ergebnismatrix, RPS auf 1X2, "
-          f"Treffer des argmax-Tipps. `rps_odds` = Pinnacle/Markt vor Schluss, "
+    md = [f"# Backtest {model_name(params)}\n",
+          f"Validierung {valid[0]}–{valid[-1]}, Test ab {test_from}. Log-Loss auf 10×10-Ergebnismatrix, "
+          f"RPS auf 1X2, Treffer des argmax-Tipps. `rps_odds` = Pinnacle/Markt vor Schluss, "
           f"`rps_model_same` = Modell-RPS auf denselben Spielen.\n",
-          "## Validierung / Test\n", report.to_markdown(headline),
+          "## Vergleich mit der Baseline (Test)\n", report.to_markdown(comparison),
+          "\n## Validierung / Test\n", report.to_markdown(headline),
           "\n## Pro Liga und Saison\n", report.to_markdown(summ[~summ.season.isin(["TEST", "VALID"])]),
           "\n## Ergebnisverteilung (Test)\n", report.to_markdown(dist),
           "\n![Verteilung](score_distribution.png)\n"]
     (out / "backtest_report.md").write_text("\n".join(md))
 
-    cols = ["league", "season", "n", "logloss", "rps", "rps_model_same", "rps_odds", "exact_%",
-            "diff_%", "tend_%", "exact_1:1_%", "exact_2:1_%"]
-    with pd.option_context("display.width", 200, "display.float_format", "{:.3f}".format):
-        print(headline[[c for c in cols if c in headline]].to_string(index=False))
-        print("\nErgebnisverteilung Test (%):")
-        print(dist.to_string(index=False))
+    show = ["league", "season", "n", "logloss", "rps", "rps_model_same", "rps_odds", "exact_%",
+            "diff_%", "tend_%", "exact_1:1_%"]
+    with pd.option_context("display.width", 220, "display.float_format", "{:.3f}".format):
+        print("\nVergleich Test (alle Ligen):")
+        print(comparison.drop(columns=["model"]).to_string(index=False))
+        print()
+        print(headline[[c for c in show if c in headline]].to_string(index=False))
     print(f"\nReport: {out / 'backtest_report.md'}")
     return 0

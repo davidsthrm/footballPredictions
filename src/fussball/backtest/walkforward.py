@@ -15,24 +15,31 @@ import pandas as pd
 
 from fussball import config, db
 from fussball.backtest import metrics
-from fussball.models.dixon_coles import MAX_GOALS, DixonColes
+from fussball.models.blend import BlendedDixonColes
+from fussball.models.dixon_coles import MAX_GOALS
 
 BURN_IN_SEASONS = 2
 
 
 def load_fit_data(con: sqlite3.Connection) -> pd.DataFrame:
-    """Nur Ergebnisse – bewusst keine anderen Tabellen (insb. keine Quoten)."""
-    df = db.read(con, "SELECT match_id, league, season, date, home_id AS home, away_id AS away, "
-                      "fthg AS hg, ftag AS ag FROM matches")
+    """Ergebnisse plus xG (Understat, NaN wo nicht vorhanden) – bewusst nichts anderes."""
+    df = db.read(con, """
+        SELECT m.match_id, m.league, m.season, m.date, m.home_id AS home, m.away_id AS away,
+               m.fthg AS hg, m.ftag AS ag, xh.xg AS xg_h, xh.xga AS xg_a
+        FROM matches m
+        LEFT JOIN team_xg xh ON xh.match_id = m.match_id AND xh.is_home = 1""")
     df["date"] = pd.to_datetime(df.date)
     df["tier"] = df.league.map(lambda c: config.LEAGUES[c].tier)
     df["country"] = df.league.map(lambda c: config.LEAGUES[c].country)
     return df
 
 
-def predict_league(data: pd.DataFrame, league: str, seasons: list[int], xi: float,
-                   reg: float = 1.0, lag_days: int = 1, window_days: int = 3 * 365) -> pd.DataFrame:
-    """Walk-forward-Vorhersagen für alle Spiele von `league` in `seasons`."""
+def predict_league(data: pd.DataFrame, league: str, seasons: list[int], params: dict,
+                   lag_days: int = 1) -> pd.DataFrame:
+    """Walk-forward-Vorhersagen für alle Spiele von `league` in `seasons`.
+
+    params: Modellparameter für BlendedDixonColes (xi, reg, w_xg, xi_xg, window_days).
+    """
     country = config.LEAGUES[league].country
     train = data[data.country == country]
     target = data[(data.league == league) & data.season.isin(seasons)].sort_values("date")
@@ -40,7 +47,7 @@ def predict_league(data: pd.DataFrame, league: str, seasons: list[int], xi: floa
     out = []
     for day, games in target.groupby("date", sort=True):
         cutoff = day - pd.Timedelta(days=lag_days - 1)  # fit nutzt date < cutoff
-        model = DixonColes(xi=xi, reg=reg, window_days=window_days).fit(train, cutoff, warm_start=prev)
+        model = BlendedDixonColes.from_params(params).fit(train, cutoff, warm_start=prev)
         prev = model
         for g in games.itertuples():
             lam, mu = model.rates(g.home, g.away, tier=1)
@@ -50,7 +57,7 @@ def predict_league(data: pd.DataFrame, league: str, seasons: list[int], xi: floa
             out.append({
                 "match_id": g.match_id, "league": league, "season": g.season, "date": day.date(),
                 "home": g.home, "away": g.away, "hg": g.hg, "ag": g.ag,
-                "lam_h": lam, "lam_a": mu, "rho": model.params_["rho"],
+                "lam_h": lam, "lam_a": mu, "rho": model.rho,
                 "p_actual": m[min(g.hg, MAX_GOALS), min(g.ag, MAX_GOALS)],
                 "p_h": ph, "p_d": pd_, "p_a": pa, "pred_h": int(i), "pred_a": int(j),
                 "p_pred": m[i, j], "home_known": g.home in model.params_["attack"],
@@ -59,9 +66,9 @@ def predict_league(data: pd.DataFrame, league: str, seasons: list[int], xi: floa
     return pd.DataFrame(out)
 
 
-def run(data: pd.DataFrame, leagues: list[str], seasons: list[int], xi: float,
-        reg: float = 1.0, lag_days: int = 1, workers: int | None = None) -> pd.DataFrame:
+def run(data: pd.DataFrame, leagues: list[str], seasons: list[int], params: dict,
+        lag_days: int = 1, workers: int | None = None) -> pd.DataFrame:
     """Alle Ligen parallel (je Liga ein Prozess)."""
     with ProcessPoolExecutor(max_workers=workers or len(leagues)) as ex:
-        futs = [ex.submit(predict_league, data, lg, seasons, xi, reg, lag_days) for lg in leagues]
+        futs = [ex.submit(predict_league, data, lg, seasons, params, lag_days) for lg in leagues]
         return pd.concat([f.result() for f in futs], ignore_index=True)

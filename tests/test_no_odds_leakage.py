@@ -61,7 +61,7 @@ def test_predictions_invariant_to_odds(con):
 
     def predict():
         data = walkforward.load_fit_data(con)
-        return walkforward.predict_league(data, "D1", [2024], xi=0.002)
+        return walkforward.predict_league(data, "D1", [2024], {"xi": 0.002, "w_xg": 0.5, "xi_xg": 0.005})
 
     before = predict()
     with con:

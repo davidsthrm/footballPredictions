@@ -20,8 +20,8 @@ import pandas as pd
 
 from fussball import config, db
 from fussball.backtest import metrics, walkforward
-from fussball.backtest.run import load_params
-from fussball.models.dixon_coles import DixonColes
+from fussball.backtest.run import load_params, model_name
+from fussball.models.blend import BlendedDixonColes
 
 MAX_SPAN_DAYS = 4  # ein Spieltag erstreckt sich höchstens über Fr–Di
 EXPORT_FILE = config.REPORT_DIR / "next_matchday.json"
@@ -48,7 +48,7 @@ def live_fit_data(con: sqlite3.Connection) -> pd.DataFrame:
     data = walkforward.load_fit_data(con)
     last = data.groupby("league").date.max()
     extra = db.read(con, "SELECT league, season, date, team_id AS home, opponent_id AS away, "
-                         "goals AS hg, goals_against AS ag FROM team_xg "
+                         "goals AS hg, goals_against AS ag, xg AS xg_h, xga AS xg_a FROM team_xg "
                          "WHERE is_home = 1 AND match_id IS NULL")
     extra["date"] = pd.to_datetime(extra.date)
     extra = extra[extra.date > extra.league.map(last)]
@@ -71,7 +71,7 @@ def predict(con: sqlite3.Connection, today: date | None = None,
             leagues: list[str] | None = None) -> pd.DataFrame:
     today = today or date.today()
     params = load_params()
-    model_name = f"dixon-coles xi={params['xi']} reg={params['reg']}"
+    name = model_name(params)
     cutoff = pd.Timestamp(today)  # Fit nutzt nur Ergebnisse mit date < heute
     data = live_fit_data(con)
     fixtures = db.read(con, "SELECT * FROM fixtures")
@@ -84,17 +84,17 @@ def predict(con: sqlite3.Connection, today: date | None = None,
         if md.empty:
             continue
         country = config.LEAGUES[league].country
-        model = DixonColes(xi=params["xi"], reg=params["reg"]).fit(data[data.country == country], cutoff)
+        model = BlendedDixonColes.from_params(params).fit(data[data.country == country], cutoff)
         for f in md.itertuples():
             lam, mu = model.rates(f.home_id, f.away_id)
             m = model.predict_matrix(f.home_id, f.away_id)
             ph, pd_, pa = metrics.outcome_probs(m)
             i, j = np.unravel_index(np.argmax(m), m.shape)
             rows.append({
-                "created_at": created, "model": model_name, "cutoff_date": today.isoformat(),
+                "created_at": created, "model": name, "cutoff_date": today.isoformat(),
                 "understat_match_id": f.understat_match_id, "league": league, "season": f.season,
                 "kickoff_utc": f.kickoff_utc, "date": f.date, "home_id": f.home_id, "away_id": f.away_id,
-                "lam_h": lam, "lam_a": mu, "rho": model.params_["rho"],
+                "lam_h": lam, "lam_a": mu, "rho": model.rho,
                 "p_h": ph, "p_d": pd_, "p_a": pa, "pred_h": int(i), "pred_a": int(j),
                 "p_pred": float(m[i, j]), "matrix": json.dumps(np.round(m, 6).tolist()),
                 "unknown_team": not {f.home_id, f.away_id} <= set(model.params_["attack"]),

@@ -55,11 +55,17 @@ THEMES = {
 
 # --- Daten ------------------------------------------------------------------------------
 
-def upcoming_predictions(con: sqlite3.Connection, today: date) -> pd.DataFrame:
-    """Jüngste Vorhersage je noch nicht gespieltem Spiel aus dem letzten Predict-Lauf."""
-    p = db.read(con, """SELECT * FROM predictions
-        WHERE cutoff_date = (SELECT MAX(cutoff_date) FROM predictions) AND date >= ?""",
-                (today.isoformat(),))
+def current_model(con: sqlite3.Connection) -> str | None:
+    """Modell des jüngsten Predict-Laufs."""
+    row = con.execute("SELECT model FROM predictions ORDER BY created_at DESC LIMIT 1").fetchone()
+    return row[0] if row else None
+
+
+def upcoming_predictions(con: sqlite3.Connection, today: date, model: str | None) -> pd.DataFrame:
+    """Jüngste Vorhersage des aktuellen Modells je noch nicht gespieltem Spiel."""
+    p = db.read(con, """SELECT * FROM predictions WHERE model = :m AND date >= :d
+        AND cutoff_date = (SELECT MAX(cutoff_date) FROM predictions WHERE model = :m)""",
+                {"m": model, "d": today.isoformat()})
     return p.sort_values(["league", "kickoff_utc", "home_id"])
 
 
@@ -81,12 +87,23 @@ def crest_ids(con: sqlite3.Connection) -> dict[str, int]:
                                WHERE team_id IS NOT NULL GROUP BY team_id""").fetchall())
 
 
-def backtest_headline() -> pd.DataFrame | None:
-    f = config.REPORT_DIR / "backtest_summary.csv"
-    if not f.exists():
-        return None
-    s = pd.read_csv(f, dtype={"season": str})
-    return s[s.season == "TEST"].set_index("league")
+def model_comparison() -> pd.DataFrame | None:
+    f = config.REPORT_DIR / "model_comparison.csv"
+    return pd.read_csv(f).set_index("rolle") if f.exists() else None
+
+
+def describe_model(model: str | None) -> str:
+    """'dc+xg xi=0.002 reg=1.0 w_xg=0.5 xi_xg=0.005' -> lesbare Beschreibung."""
+    if not model:
+        return "–"
+    p = dict(kv.split("=") for kv in model.split() if "=" in kv)
+    half = lambda xi: f"{np.log(2) / float(xi) / 30.4:.0f} Monate"
+    if "xi" not in p:
+        return model
+    if "w_xg" not in p:
+        return f"Dixon-Coles auf Toren (Halbwertszeit {half(p['xi'])})"
+    return (f"Dixon-Coles aus Toren und xG (xG-Gewicht {float(p['w_xg']):.0%}, Halbwertszeit "
+            f"Tore {half(p['xi'])}, xG {half(p['xi_xg'])})").replace("%", " %")
 
 
 # --- Formatierung -------------------------------------------------------------------------
@@ -225,18 +242,21 @@ def scorecard_section(sc: pd.DataFrame, names: dict) -> str:
 <div class="panel pr"><ul class="recent">{recent}</ul><p class="muted small">✓ exakt · ≈ Tendenz richtig · ✗ falsch</p></div></section>"""
 
 
-def backtest_section(bt: pd.DataFrame | None) -> str:
-    if bt is None or "ALL" not in bt.index:
+def backtest_section(cmp: pd.DataFrame | None, model: str | None) -> str:
+    if cmp is None or "aktuell" not in cmp.index:
         return ""
-    a = bt.loc["ALL"]
+    a, b = cmp.loc["aktuell"], cmp.loc["Baseline (nur Tore)"]
     return f"""<section id="modell" class="plain"><h2>Einordnung</h2>
-<p class="muted small">Backtest ab 2019/20 · {_num(a['n'], 0)} Spiele, jeweils nur mit Daten bis zum Vortag</p>
+<p class="muted small">{escape(describe_model(model))}. Backtest ab 2019/20 · {_num(a['n'], 0)} Spiele,
+jeweils nur mit Daten bis zum Vortag.</p>
 <div class="kpis">
   <div><strong>{_num(a['exact_%'])} %</strong><span>exakte Treffer</span></div>
-  <div><strong>{_num(a['exact_1:1_%'])} %</strong><span>zum Vergleich: immer 1:1</span></div>
   <div><strong>{_num(a['tend_%'])} %</strong><span>Tendenz richtig</span></div>
-  <div><strong>{_num(a['rps'], 3)}</strong><span>RPS (Markt {_num(a['rps_odds'], 3)}, kleiner = besser)</span></div>
-</div></section>"""
+  <div><strong>{_num(b['exact_%'])} %</strong><span>bisheriges Modell (nur Tore)</span></div>
+  <div><strong>{_num(a['exact_1:1_%'])} %</strong><span>zum Vergleich: immer 1:1</span></div>
+</div>
+<p class="muted small">Log-Loss {_num(a['logloss'], 3)} (vorher {_num(b['logloss'], 3)}) · RPS {_num(a['rps'], 3)}
+(vorher {_num(b['rps'], 3)}, Wettmarkt {_num(a['rps_odds'], 3)}) – jeweils kleiner = besser.</p></section>"""
 
 
 CSS = """
@@ -312,11 +332,13 @@ footer{margin-top:32px;color:var(--muted);font-size:12px}
 
 def render(con: sqlite3.Connection, today: date | None = None) -> str:
     today = today or date.today()
-    pred = upcoming_predictions(con, today)
+    model = current_model(con)
+    pred = upcoming_predictions(con, today, model)
     names = teams.display_names(con)
     crests = crest_ids(con)
     ab = absences(con)
     sc = predict.scorecard(con)
+    sc = sc[sc.model == model] if len(sc) else sc
     snap = con.execute("SELECT MAX(snapshot_date) FROM availability_snapshots").fetchone()[0]
 
     shown_teams = set(pred.home_id) | set(pred.away_id)
@@ -335,7 +357,6 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
     if not sections:
         sections.append("<p class='muted'>Keine Vorhersagen vorhanden – erst <code>fussball predict</code> ausführen.</p>")
 
-    model = pred.model.iloc[0] if len(pred) else "–"
     created = (datetime.fromisoformat(pred.created_at.max()).astimezone(TZ).strftime("%d.%m.%Y, %H:%M")
                if len(pred) else "–")
     results_until = ((pd.Timestamp(pred.cutoff_date.max()) - pd.Timedelta(days=1)).strftime("%d.%m.")
@@ -348,8 +369,9 @@ Ausfälle vom {pd.Timestamp(snap).strftime('%d.%m.') if snap else '–'}</p></di
 <nav>{''.join(nav)}</nav>
 {''.join(sections)}
 {scorecard_section(sc, names)}
-{backtest_section(backtest_headline())}
-<footer>Tipp = wahrscheinlichstes Ergebnis ({escape(model)}). Wettquoten fließen nicht ein.
+{backtest_section(model_comparison(), model)}
+<footer>Tipp = wahrscheinlichstes Ergebnis laut Modell: {escape(describe_model(model))}.
+Wettquoten fließen nicht ein.
 Wappen und Logos: Transfermarkt, nur zur privaten Nutzung.</footer>
 </main></body></html>"""
 
