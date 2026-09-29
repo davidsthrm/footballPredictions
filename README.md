@@ -15,6 +15,7 @@ uv sync
 uv run fussball ingest football-data
 uv run fussball ingest understat
 uv run fussball ingest clubelo --suggest   # Vorschläge in data_seed/team_name_map.csv prüfen
+uv run fussball ingest europe --suggest    # Europapokal-Termine, Vereins-IDs prüfen
 uv run fussball check
 ```
 

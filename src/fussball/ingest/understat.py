@@ -143,6 +143,24 @@ def store_fixtures(con: sqlite3.Connection, fx: pd.DataFrame, league: str, seaso
     return unmapped
 
 
+def parse_players(data: dict, league: str, season: int) -> pd.DataFrame:
+    """Saison-Aggregate je Spieler. team_title mit Komma = Vereinswechsel in der Saison."""
+    rows = [{"season": season, "league": league, "understat_player_id": int(p["id"]),
+             "player": p["player_name"], "team": p["team_title"], "position": p.get("position"),
+             "games": int(p["games"]), "minutes": int(p["time"]), "goals": int(p["goals"]),
+             "assists": int(p["assists"]), "xg": float(p["xG"]), "xa": float(p["xA"]),
+             "npxg": float(p["npxG"])} for p in data.get("players", [])]
+    return pd.DataFrame(rows)
+
+
+def store_players(con: sqlite3.Connection, players: pd.DataFrame, fetched_at: str | None = None) -> int:
+    if players.empty:
+        return 0
+    mp = teams.name_map(con, SOURCE)
+    players = players.assign(team_id=players.team.map(mp), fetched_at=fetched_at).drop(columns=["team"])
+    return db.upsert(con, "player_season_stats", players, key=["season", "league", "understat_player_id"])
+
+
 def ingest(con: sqlite3.Connection, leagues: list[str] | None = None,
            seasons: list[int] | None = None, fetcher: Fetcher | None = None,
            suggest: bool = False, max_age_h: float = CURRENT_SEASON_MAX_AGE_H,
@@ -153,9 +171,10 @@ def ingest(con: sqlite3.Connection, leagues: list[str] | None = None,
     for season in seasons or config.seasons():
         for league in leagues:
             data = fetch(fetcher, league, season, max_age_h)
+            name = f"league/{config.LEAGUES[league].understat}_{season}.json"
+            store_players(con, parse_players(data, league, season), fetcher.fetched_at(name))
             unmapped = set()
             if season == config.current_season():
-                name = f"league/{config.LEAGUES[league].understat}_{season}.json"
                 unmapped |= store_fixtures(con, parse_fixtures(data, league, season), league, season,
                                            fetcher.fetched_at(name))
             xg = parse(data, league, season)

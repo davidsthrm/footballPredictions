@@ -62,6 +62,19 @@ def cmd_ingest(args) -> int:
             teams.sync_seed_map(con)
         _print(clubelo.ingest(con, refresh=args.refresh))
         bad = []
+    elif args.source == "europe":
+        from fussball.ingest import europe
+        teams.sync_seed_map(con)
+        _print(europe.ingest(con, _seasons(args.seasons)))
+        if args.suggest:
+            sugg = europe.suggest_ids(con)
+            for x in sugg:
+                if "slug" in x:
+                    print(f"  {x['slug']:<32} -> {x['team_id']:<18} ({x['score']})")
+            print(f"{teams.append_seed([{k: x[k] for k in ('source', 'source_name', 'team_id')} for x in sugg])} "
+                  f"neue Vorschläge in {teams.SEED_MAP}")
+            teams.sync_seed_map(con)
+        bad = []
     else:
         raise ValueError(args.source)
     for b in bad:
@@ -161,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("ingest", help="Daten laden (idempotent, mit Cache)")
-    s.add_argument("source", choices=["football-data", "understat", "clubelo"])
+    s.add_argument("source", choices=["football-data", "understat", "clubelo", "europe"])
     s.add_argument("--leagues", help="z.B. E0,D1 (Default: alle)")
     s.add_argument("--seasons", help="Startjahre, z.B. 2014-2026 oder 2024,2025")
     s.add_argument("--suggest", action="store_true",

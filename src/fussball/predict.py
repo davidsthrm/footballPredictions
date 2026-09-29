@@ -21,7 +21,8 @@ import pandas as pd
 from fussball import config, db
 from fussball.backtest import metrics, walkforward
 from fussball.backtest.run import LGBM_FILE, TIP_WEIGHTS_FILE, load_params, model_name
-from fussball.features import form
+from fussball.features import availability, form
+from fussball.ingest import europe
 from fussball.models import lgbm, tipping
 from fussball.models.blend import BlendedDixonColes
 from fussball.models.dixon_coles import score_matrix
@@ -69,9 +70,11 @@ def refresh(con: sqlite3.Connection, max_age_h: float = 3.0) -> None:
     football_data.ingest(con, seasons=season, max_age_h=max_age_h)
     teams.sync_seed_map(con)
     understat.ingest(con, seasons=season, max_age_h=max_age_h)
+    europe.ingest(con, seasons=season)
 
 
-def lgbm_correct(data: pd.DataFrame, base: pd.DataFrame, corrector: LGBMCorrector) -> pd.DataFrame:
+def lgbm_correct(data: pd.DataFrame, base: pd.DataFrame, corrector: LGBMCorrector,
+                 europe_dates: pd.DataFrame | None = None) -> pd.DataFrame:
     """Wendet die LightGBM-Korrektur auf die DC-Raten der anstehenden Spiele an.
 
     Die Spiele werden als Zeilen ohne Ergebnis an die Historie gehängt; die Features
@@ -83,7 +86,7 @@ def lgbm_correct(data: pd.DataFrame, base: pd.DataFrame, corrector: LGBMCorrecto
         "home": base.home_id.to_numpy(), "away": base.away_id.to_numpy(),
         "hg": np.nan, "ag": np.nan, "xg_h": np.nan, "xg_a": np.nan, "tier": 1,
         "country": base.league.map(lambda c: config.LEAGUES[c].country).to_numpy()})
-    feats = form.build(pd.concat([data, pending], ignore_index=True))
+    feats = form.build(pd.concat([data, pending], ignore_index=True), europe_dates)
     rows = lgbm.to_team_rows(feats[feats.match_id < 0],
                              base.assign(match_id=-base.understat_match_id)[["match_id", "lam_h", "lam_a"]])
     rates = lgbm.match_rates(rows, corrector.rates(rows)).set_index("match_id")
@@ -122,8 +125,34 @@ def predict(con: sqlite3.Connection, today: date | None = None,
         return pd.DataFrame()
     out = pd.DataFrame(base)
     if corrector is not None:
-        out = lgbm_correct(data, out, corrector)
+        out = lgbm_correct(data, out, corrector, europe.team_dates(con))
+    variants = [(name, out), (name + AVAIL_SUFFIX, with_absences(con, out))]
+    stored = [finish(con, v, n, created, today) for n, v in variants]
+    result = stored[-1]
+    result["home"] = result.home_id.map(names)
+    result["away"] = result.away_id.map(names)
+    export(result, today, params)
+    return result
 
+
+AVAIL_SUFFIX = " +ausfaelle"
+
+
+def with_absences(con: sqlite3.Connection, out: pd.DataFrame) -> pd.DataFrame:
+    """Passt die Raten an die Ausfälle aus dem letzten Snapshot vor dem jeweiligen Spieltag an."""
+    adj = out.copy()
+    for (d, season), idx in adj.groupby(["date", "season"]).groups.items():
+        per_team, _ = availability.team_absences(con, d, int(season))
+        info = per_team.set_index("team_id").to_dict("index")
+        for i in idx:
+            r = adj.loc[i]
+            adj.loc[i, ["lam_h", "lam_a"]] = availability.adjust_rates(
+                r.lam_h, r.lam_a, info.get(r.home_id, {}), info.get(r.away_id, {}))
+    return adj
+
+
+def finish(con: sqlite3.Connection, out: pd.DataFrame, name: str, created: str, today: date) -> pd.DataFrame:
+    """Matrix, 1X2 und Tipps berechnen und als Modell `name` speichern."""
     weights = tipping.load_weights(TIP_WEIGHTS_FILE)
     rows = []
     for r in out.itertuples():
@@ -134,13 +163,10 @@ def predict(con: sqlite3.Connection, today: date | None = None,
         rows.append({"p_h": ph, "p_d": pd_, "p_a": pa, "pred_h": int(i), "pred_a": int(j),
                      "p_pred": float(m[i, j]), "tip_h": ti, "tip_a": tj, "p_tip": float(m[ti, tj]),
                      "matrix": json.dumps(np.round(m, 6).tolist())})
-    out = pd.concat([out, pd.DataFrame(rows)], axis=1).assign(
+    out = pd.concat([out.reset_index(drop=True), pd.DataFrame(rows)], axis=1).assign(
         created_at=created, model=name, cutoff_date=today.isoformat())
     db.upsert(con, "predictions", out.drop(columns=["unknown_team"]),
               key=["model", "understat_match_id", "cutoff_date"])
-    out["home"] = out.home_id.map(names)
-    out["away"] = out.away_id.map(names)
-    export(out, today, params)
     return out
 
 

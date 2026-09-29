@@ -10,6 +10,10 @@ Jedes Feature eines Spiels am Tag D nutzt ausschließlich Spiele des Teams mit D
 - venue_xgf/xga: xG-Form nur aus Heim- bzw. Auswärtsspielen
 - ppg, rank_frac: Tabellensituation der laufenden Saison vor dem Spieltag
 - n_hist:       Anzahl bekannter Spiele (wenig Historie = unsichere Stärke)
+- eu_since/eu_until: Tage seit dem letzten / bis zum nächsten Europapokal-Spiel (max. 30);
+                Termine stehen vorab im Spielplan fest
+- eu_14d:       Europapokal-Spiele in den 14 Tagen vor dem Spieltag
+- rest_all:     Ruhetage über Liga und Europapokal
 """
 
 from __future__ import annotations
@@ -24,6 +28,9 @@ MAX_REST = 30
 
 TEAM_FEATURES = ["rest", "form_xgf", "form_xga", "form_gf", "form_ga", "finishing",
                  "venue_xgf", "venue_xga", "ppg", "rank_frac", "n_hist"]
+# Europapokal-Belastung: berechnet, aber nicht im Modell – im Backtest (2026-09-29) kein Gewinn,
+# auch nicht bei Spielen direkt vor/nach Europapokal-Einsätzen (Log-Loss 2.9234 vs. 2.9235).
+EU_FEATURES = ["eu_since", "eu_until", "eu_14d", "rest_all"]
 FEATURES = ["is_home", "progress"] + TEAM_FEATURES + [f"opp_{c}" for c in TEAM_FEATURES]
 
 
@@ -84,11 +91,36 @@ def table_features(long: pd.DataFrame) -> pd.DataFrame:
     return pd.concat(parts, ignore_index=True)
 
 
-def build(data: pd.DataFrame) -> pd.DataFrame:
-    """Team-Zeilen mit eigenen und gegnerischen Features; Ziel `goals` = eigene Tore (NaN = offen)."""
+def europe_features(long: pd.DataFrame, europe: pd.DataFrame | None) -> pd.DataFrame:
+    """Belastung durch Europapokal-Spiele (europe: Spalten team, date)."""
+    out = long.assign(eu_since=float(MAX_REST), eu_until=float(MAX_REST), eu_14d=0.0)
+    if europe is not None and len(europe):
+        eu = {t: np.sort(g.date.to_numpy()) for t, g in europe.groupby("team")}
+        for team, idx in out.groupby("team").groups.items():
+            dates = eu.get(team)
+            if dates is None:
+                continue
+            d = out.loc[idx, "date"].to_numpy()
+            before = np.searchsorted(dates, d, side="left")      # Europa-Spiele strikt vor d
+            after = np.searchsorted(dates, d, side="right")      # Europa-Spiele strikt nach d
+            prev = np.where(before > 0, (d - dates[np.maximum(before - 1, 0)]) / np.timedelta64(1, "D"), np.inf)
+            nxt = np.where(after < len(dates), (dates[np.minimum(after, len(dates) - 1)] - d) / np.timedelta64(1, "D"), np.inf)
+            out.loc[idx, "eu_since"] = np.minimum(prev, MAX_REST)
+            out.loc[idx, "eu_until"] = np.minimum(nxt, MAX_REST)
+            out.loc[idx, "eu_14d"] = before - np.searchsorted(dates, d - np.timedelta64(14, "D"), side="left")
+    out["rest_all"] = np.minimum(out.rest, out.eu_since)
+    return out
+
+
+def build(data: pd.DataFrame, europe: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Team-Zeilen mit eigenen und gegnerischen Features; Ziel `goals` = eigene Tore (NaN = offen).
+
+    europe: optionale Europapokal-Termine (Spalten team, date) für die Belastungs-Features.
+    """
     long = rolling_form(team_long(data))
+    long = europe_features(long, europe)
     long = long.merge(table_features(long), on=["match_id", "team"], how="left")
     opp = long[["match_id", "team"] + TEAM_FEATURES].rename(
         columns={"team": "opp", **{c: f"opp_{c}" for c in TEAM_FEATURES}})
-    cols = ["match_id", "league", "season", "date", "tier", "team", "opp", "is_home", "progress"] + TEAM_FEATURES
+    cols = ["match_id", "league", "season", "date", "tier", "team", "opp", "is_home", "progress"] + TEAM_FEATURES + EU_FEATURES
     return long[cols].assign(goals=long.gf).merge(opp, on=["match_id", "opp"], how="left")

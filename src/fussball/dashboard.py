@@ -24,7 +24,8 @@ import numpy as np
 import pandas as pd
 
 from fussball import config, db, predict, teams
-from fussball.ingest import transfermarkt
+from fussball.features import availability
+from fussball.ingest import europe, transfermarkt
 
 OUT_FILE = config.DATA_DIR / "dashboard" / "index.html"
 IMG_DIR = config.RAW_DIR / transfermarkt.SOURCE
@@ -53,20 +54,68 @@ THEMES = {
 }
 
 
+@dataclass
+class Ctx:
+    names: dict
+    crests: dict
+    ab: pd.DataFrame                 # Ausfälle je Spieler (letzter Snapshot)
+    impact: dict                     # (datum, team_id) -> fehlende Anteile
+    key_players: set                 # (team_id, Spielername) mit Stammplatz (>= 50 % der Minuten)
+    europe: dict                     # team_id -> sortierte Europapokal-Termine
+
+
 # --- Daten ------------------------------------------------------------------------------
 
 def current_model(con: sqlite3.Connection) -> str | None:
     """Modell des jüngsten Predict-Laufs."""
-    row = con.execute("SELECT model FROM predictions ORDER BY created_at DESC LIMIT 1").fetchone()
+    row = con.execute("""SELECT model FROM predictions
+        WHERE created_at = (SELECT MAX(created_at) FROM predictions)
+        ORDER BY model LIKE '%+ausfaelle' DESC LIMIT 1""").fetchone()
     return row[0] if row else None
 
 
 def upcoming_predictions(con: sqlite3.Connection, today: date, model: str | None) -> pd.DataFrame:
-    """Jüngste Vorhersage des aktuellen Modells je noch nicht gespieltem Spiel."""
-    p = db.read(con, """SELECT * FROM predictions WHERE model = :m AND date >= :d
-        AND cutoff_date = (SELECT MAX(cutoff_date) FROM predictions WHERE model = :m)""",
-                {"m": model, "d": today.isoformat()})
+    """Jüngste Vorhersage des aktuellen Modells je noch nicht gespieltem Spiel.
+
+    lam_h0/lam_a0 = erwartete Tore desselben Laufs ohne Ausfall-Anpassung (falls vorhanden).
+    """
+    base = model.removesuffix(" +ausfaelle") if model else None
+    p = db.read(con, """SELECT p.*, b.lam_h AS lam_h0, b.lam_a AS lam_a0 FROM predictions p
+        LEFT JOIN predictions b ON b.model = :b AND b.understat_match_id = p.understat_match_id
+             AND b.cutoff_date = p.cutoff_date AND :b != :m
+        WHERE p.model = :m AND p.date >= :d
+          AND p.cutoff_date = (SELECT MAX(cutoff_date) FROM predictions WHERE model = :m)""",
+                {"m": model, "b": base, "d": today.isoformat()})
     return p.sort_values(["league", "kickoff_utc", "home_id"])
+
+
+def absence_impact(con: sqlite3.Connection, pred: pd.DataFrame) -> tuple[dict, set]:
+    impact, key = {}, set()
+    for (d, season), _ in pred.groupby(["date", "season"]):
+        per_team, players = availability.team_absences(con, d, int(season))
+        for r in per_team.itertuples():
+            impact[(d, r.team_id)] = {"lineup": r.missing_lineup, "att": r.missing_att}
+        if len(players):
+            key |= set(map(tuple, players[players.lineup_share >= 0.5][["team_id", "player"]].to_numpy()))
+    return impact, key
+
+
+def europe_note(ctx: Ctx, team_id: str, match_date: str) -> str:
+    """'Europapokal vor 3 Tagen' / 'Europapokal in 3 Tagen' (nur wenn nah dran)."""
+    dates = ctx.europe.get(team_id)
+    if dates is None:
+        return ""
+    d = np.datetime64(match_date)
+    i = np.searchsorted(dates, d)
+    notes = []
+    if i > 0 and (d - dates[i - 1]) / np.timedelta64(1, "D") <= 4:
+        n = int((d - dates[i - 1]) / np.timedelta64(1, "D"))
+        notes.append(f"Europapokal vor {n} Tag{'en' if n != 1 else ''}")
+    j = np.searchsorted(dates, d, side="right")
+    if j < len(dates) and (dates[j] - d) / np.timedelta64(1, "D") <= 3:
+        n = int((dates[j] - d) / np.timedelta64(1, "D"))
+        notes.append(f"Europapokal in {n} Tag{'en' if n != 1 else ''}")
+    return f"<span class='eu'>{' · '.join(notes)}</span>" if notes else ""
 
 
 def absences(con: sqlite3.Connection) -> pd.DataFrame:
@@ -174,25 +223,34 @@ def outcome_bar(ph: float, pd_: float, pa: float) -> str:
             f'<span>Auswärts {_pct(pa)}</span></div>')
 
 
-def absence_list(ab: pd.DataFrame, team_id: str, team: str) -> str:
-    a = ab[ab.team_id == team_id]
+def absence_list(ctx: Ctx, team_id: str, team: str, match_date: str) -> str:
+    a = ctx.ab[ctx.ab.team_id == team_id]
     if a.empty:
         return f"<div><p class='abs-team'>{escape(team)}</p><p class='muted small'>keine gemeldeten Ausfälle</p></div>"
+    imp = ctx.impact.get((match_date, team_id))
+    summary = (f"<p class='muted small'>fehlt: {_pct(imp['lineup'])} der Stammelf · "
+               f"{_pct(imp['att'])} der Offensive</p>" if imp else "")
     items = []
-    for r in a.itertuples():
+    for r in a.sort_values("player").itertuples():
         pos = f"<span class='muted'> · {escape(r.position)}</span>" if pd.notna(r.position) else ""
         until = f" <span class='muted'>(bis {pd.Timestamp(r.until):%d.%m.})</span>" if pd.notna(r.until) else ""
-        items.append(f"<li><strong>{escape(r.player)}</strong>{pos}<br>{escape(r.reason)}{until}</li>")
-    return (f"<div><p class='abs-team'>{escape(team)} <span class='muted'>({len(a)})</span></p>"
+        badge = "<span class='badge'>Stammspieler</span>" if (team_id, r.player) in ctx.key_players else ""
+        items.append(f"<li><strong>{escape(r.player)}</strong>{badge}{pos}<br>{escape(r.reason)}{until}</li>")
+    return (f"<div><p class='abs-team'>{escape(team)} <span class='muted'>({len(a)})</span></p>{summary}"
             f"<ul>{''.join(items)}</ul></div>")
 
 
-def match_card(r, names: dict, crests: dict, ab: pd.DataFrame, provisional: bool) -> str:
+def match_card(r, ctx: Ctx, provisional: bool) -> str:
     day, time = _kickoff(r.kickoff_utc)
-    home, away = names.get(r.home_id, r.home_id), names.get(r.away_id, r.away_id)
+    home, away = ctx.names.get(r.home_id, r.home_id), ctx.names.get(r.away_id, r.away_id)
+    crests = ctx.crests
     m = np.array(json.loads(r.matrix))
-    n_home = int((ab.team_id == r.home_id).sum())
-    n_away = int((ab.team_id == r.away_id).sum())
+    n_home = int((ctx.ab.team_id == r.home_id).sum())
+    n_away = int((ctx.ab.team_id == r.away_id).sum())
+    shift = ""
+    if pd.notna(getattr(r, "lam_h0", np.nan)) and (abs(r.lam_h0 - r.lam_h) + abs(r.lam_a0 - r.lam_a)) >= 0.02:
+        shift = (f"<p class='muted small'>Ausfälle eingerechnet: erwartete Tore {_num(r.lam_h0, 2)} : "
+                 f"{_num(r.lam_a0, 2)} → {_num(r.lam_h, 2)} : {_num(r.lam_a, 2)}</p>")
     uid = r.understat_match_id
     th, ta = (int(r.tip_h), int(r.tip_a)) if pd.notna(r.tip_h) else (r.pred_h, r.pred_a)
     p_tend = {1: r.p_h, 0: r.p_d, -1: r.p_a}[int(np.sign(th - ta))]
@@ -203,21 +261,21 @@ def match_card(r, names: dict, crests: dict, ab: pd.DataFrame, provisional: bool
   <div class="meta"><span>{day} · {time}{'*' if provisional else ''}</span>
     <span class="chance">Tendenz {_pct(p_tend)} · exakt {_pct(m[th, ta], 1)}</span></div>
   <div class="fixture">
-    <div class="side">{crest(r.home_id, crests, home)}<span class="team">{escape(home)}</span></div>
+    <div class="side">{crest(r.home_id, crests, home)}<span class="team">{escape(home)}</span>{europe_note(ctx, r.home_id, r.date)}</div>
     <div class="score"><span class="tip">{th}:{ta}</span>
       <span class="xg">erw. Tore {_num(r.lam_h)} : {_num(r.lam_a)}</span>{likely}</div>
-    <div class="side">{crest(r.away_id, crests, away)}<span class="team">{escape(away)}</span></div>
+    <div class="side">{crest(r.away_id, crests, away)}<span class="team">{escape(away)}</span>{europe_note(ctx, r.away_id, r.date)}</div>
   </div>
   {outcome_bar(r.p_h, r.p_d, r.p_a)}
   <input type="checkbox" id="m{uid}" class="tg tg-m"><input type="checkbox" id="a{uid}" class="tg tg-a">
   <div class="toggles"><label for="m{uid}" class="lm">Ergebnismatrix</label>
     <label for="a{uid}" class="la">Ausfälle {n_home} · {n_away}</label></div>
   <div class="panel pm">{matrix_table(m, home, away, (th, ta), (r.pred_h, r.pred_a))}</div>
-  <div class="panel pa"><div class="abs">{absence_list(ab, r.home_id, home)}{absence_list(ab, r.away_id, away)}</div></div>
+  <div class="panel pa">{shift}<div class="abs">{absence_list(ctx, r.home_id, home, r.date)}{absence_list(ctx, r.away_id, away, r.date)}</div></div>
 </article>"""
 
 
-def league_section(lg: str, g: pd.DataFrame, names, crests, ab) -> str:
+def league_section(lg: str, g: pd.DataFrame, ctx: Ctx) -> str:
     th = THEMES[lg]
     name = config.LEAGUES[lg].name
     # Understat setzt nicht terminierte Spiele auf eine gemeinsame Platzhalter-Uhrzeit
@@ -225,13 +283,35 @@ def league_section(lg: str, g: pd.DataFrame, names, crests, ab) -> str:
     days = list(dict.fromkeys(_kickoff(k)[0] for k in sorted(g.kickoff_utc)))
     span = days[0] if len(days) == 1 else f"{days[0]} – {days[-1]}"
     note = "<p class='muted small note'>* Anstoßzeiten noch nicht terminiert</p>" if provisional else ""
-    cards = "".join(match_card(r, names, crests, ab, provisional) for r in g.itertuples())
+    cards = "".join(match_card(r, ctx, provisional) for r in g.itertuples())
     return f"""<section id="{lg}" class="league" style="--lg:{th.primary};--lg-accent:{th.accent};--lg-ink:{th.ink}">
 <header class="lg-head"><span class="logo lg-{lg}" role="img" aria-label="Logo {escape(name)}"></span>
 <div><h2>{escape(name)}</h2><p>{span} · {len(g)} Spiele</p></div></header>{note}{cards}</section>"""
 
 
-def scorecard_section(sc: pd.DataFrame, names: dict) -> str:
+def ab_test(sc_all: pd.DataFrame, model: str | None) -> str:
+    """Vergleich mit/ohne Ausfall-Anpassung auf denselben ausgewerteten Spielen."""
+    if sc_all.empty or not model or not model.endswith(" +ausfaelle"):
+        return ""
+    base = model.removesuffix(" +ausfaelle")
+    a, b = sc_all[sc_all.model == model], sc_all[sc_all.model == base]
+    common = set(a.understat_match_id) & set(b.understat_match_id)
+    if not common:
+        return ""
+    rows = []
+    for label, d in (("mit Ausfällen", a), ("ohne Ausfälle", b)):
+        d = d[d.understat_match_id.isin(common)]
+        rows.append(f"<tr><td>{label}</td><td>{_pct(d.tip_exact.mean(), 1)}</td>"
+                    f"<td>{_pct(d.tip_tendency.mean(), 1)}</td><td>{int(d.points.sum())}</td>"
+                    f"<td>{_num(d.logloss.mean(), 3)}</td></tr>")
+    return (f"<h3 class='sub'>Test: Ausfall-Anpassung ({len(common)} Spiele)</h3><table class='stats'><thead><tr>"
+            f"<th>Variante</th><th>Exakt</th><th>Tendenz</th><th>Punkte</th><th>Log-Loss</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table><p class='muted small'>Die Ausfall-Anpassung ist eine "
+            f"vorsichtige Schätzung (Ausfall-Historie gibt es erst seit 29.09.2026). Dieser Vergleich zeigt "
+            f"mit der Zeit, ob sie hilft.</p>")
+
+
+def scorecard_section(sc: pd.DataFrame, names: dict, ab_html: str = "") -> str:
     if sc.empty:
         return ("<section id='bilanz' class='plain'><h2>Live-Bilanz</h2><p class='muted'>Noch keine "
                 "ausgewerteten Spiele – die Bilanz füllt sich, sobald vorhergesagte Spiele gespielt sind.</p></section>")
@@ -250,7 +330,7 @@ def scorecard_section(sc: pd.DataFrame, names: dict) -> str:
 <tbody>{''.join(rows)}</tbody></table>
 <input type="checkbox" id="recent" class="tg tg-r"><div class="toggles"><label for="recent" class="lr">Letzte 10 Spiele</label></div>
 <div class="panel pr"><ul class="recent">{recent}</ul><p class="muted small">✓ exakt · ≈ Tendenz richtig · ✗ falsch ·
-Punkte: 4 exakt, 3 Tordifferenz, 2 Tendenz</p></div></section>"""
+Punkte: 4 exakt, 3 Tordifferenz, 2 Tendenz</p></div>{ab_html}</section>"""
 
 
 def backtest_section(cmp: pd.DataFrame | None, model: str | None) -> str:
@@ -334,7 +414,7 @@ border-radius:10px;padding:8px 6px;cursor:pointer;user-select:none;-webkit-user-
 .matrix td{text-align:center;padding:6px 1px;border:2px solid var(--surface);border-radius:4px}
 .matrix td.tip{outline:2px solid var(--text);outline-offset:-2px;font-weight:800}.matrix td.likely{outline:2px dashed var(--muted);outline-offset:-2px}.alt{font-size:10px;color:var(--muted);margin-top:2px;text-align:center;line-height:1.2;max-width:110px}
 .abs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.abs-team{font-weight:700;margin:0 0 4px;font-size:13px}
+.abs-team{font-weight:700;margin:0 0 4px;font-size:13px}.badge{display:inline-block;font-size:10px;font-weight:700;color:#fff;background:var(--away);border-radius:4px;padding:0 4px;margin-left:4px;vertical-align:1px}.eu{font-size:10px;color:var(--muted);background:var(--chip);border-radius:999px;padding:1px 6px}h3.sub{font-size:15px;margin:18px 0 6px}
 .abs ul{margin:0;padding:0;list-style:none;font-size:12px}.abs li{padding:4px 0;border-top:1px solid var(--line)}
 .muted{color:var(--muted)}.small{font-size:12px}
 .plain h2{font-size:19px;margin:30px 0 8px}
@@ -357,9 +437,11 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
     pred = upcoming_predictions(con, today, model)
     names = teams.display_names(con)
     crests = crest_ids(con)
-    ab = absences(con)
-    sc = predict.scorecard(con)
-    sc = sc[sc.model == model] if len(sc) else sc
+    impact, key = absence_impact(con, pred) if len(pred) else ({}, set())
+    eu = {t: np.sort(g.date.to_numpy()) for t, g in europe.team_dates(con).groupby("team")}
+    ctx = Ctx(names, crests, absences(con), impact, key, eu)
+    sc_all = predict.scorecard(con)
+    sc = sc_all[sc_all.model == model] if len(sc_all) else sc_all
     snap = con.execute("SELECT MAX(snapshot_date) FROM availability_snapshots").fetchone()[0]
 
     shown_teams = set(pred.home_id) | set(pred.away_id)
@@ -373,7 +455,7 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
         if g.empty:
             continue
         nav.append(f'<a href="#{lg}"><span class="logo lg-{lg}"></span>{escape(config.LEAGUES[lg].name)}</a>')
-        sections.append(league_section(lg, g, names, crests, ab))
+        sections.append(league_section(lg, g, ctx))
     nav += ['<a class="plain" href="#bilanz">Bilanz</a>', '<a class="plain" href="#modell">Einordnung</a>']
     if not sections:
         sections.append("<p class='muted'>Keine Vorhersagen vorhanden – erst <code>fussball predict</code> ausführen.</p>")
@@ -389,7 +471,7 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
 Ausfälle vom {pd.Timestamp(snap).strftime('%d.%m.') if snap else '–'}</p></div>
 <nav>{''.join(nav)}</nav>
 {''.join(sections)}
-{scorecard_section(sc, names)}
+{scorecard_section(sc, names, ab_test(sc_all, model))}
 {backtest_section(model_comparison(), model)}
 <footer>Tipp = wahrscheinlichstes Ergebnis laut Modell: {escape(describe_model(model))}.
 Wettquoten fließen nicht ein.

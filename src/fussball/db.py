@@ -138,6 +138,20 @@ CREATE TABLE IF NOT EXISTS predictions (
     UNIQUE (model, understat_match_id, cutoff_date)
 );
 
+-- Saison-Aggregate je Spieler (Understat); Grundlage für die Bedeutung fehlender Spieler
+CREATE TABLE IF NOT EXISTS player_season_stats (
+    season      INTEGER NOT NULL,
+    league      TEXT NOT NULL,
+    understat_player_id INTEGER NOT NULL,
+    player      TEXT NOT NULL,
+    team_id     TEXT REFERENCES teams(team_id),   -- NULL bei Spielern mit mehreren Vereinen
+    position    TEXT,
+    games INTEGER, minutes INTEGER, goals INTEGER, assists INTEGER,
+    xg REAL, xa REAL, npxg REAL,
+    fetched_at  TEXT,
+    PRIMARY KEY (season, league, understat_player_id)
+);
+
 CREATE TABLE IF NOT EXISTS squad_value_snapshots (
     snapshot_date TEXT NOT NULL,
     snapshot_ts   TEXT NOT NULL,

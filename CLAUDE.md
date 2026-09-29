@@ -30,6 +30,7 @@ uv run pytest                                  # Tests (ohne Netzwerk)
 uv run fussball ingest football-data           # Ergebnisse + Statistik, 1. und 2. Ligen
 uv run fussball ingest understat [--suggest]   # xG; --suggest schlägt Teamnamen vor
 uv run fussball ingest clubelo [--suggest]     # Elo-Historien der gemappten Vereine
+uv run fussball ingest europe [--suggest]      # Europapokal-Termine (Transfermarkt)
 uv run fussball snapshot transfermarkt         # täglicher Snapshot Verletzungen/Sperren
 uv run fussball teams                          # data_seed/team_name_map.csv -> DB
 uv run fussball check [-v]                     # Datenqualität, Exit 1 bei ERROR
@@ -49,6 +50,16 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
 - `features/form.py` point-in-time Team-Features (Ruhetage, xG-/Tor-Form, Chancenverwertung,
   Heim/Auswärts-Form, Tabelle, Saisonfortschritt); `models/lgbm.py` LightGBM-Korrekturstufe
   (Poisson, DC-log-λ als Offset), je Saison nur auf Vorsaisons trainiert
+- `ingest/europe.py` Europapokal-Termine (CL/EL/ECL, Transfermarkt-Gesamtspielplan, ~32 Seiten);
+  Vereine über TM-ID gemappt (Quelle `transfermarkt_id` in der Seed-Map). Belastungs-Features
+  (`form.EU_FEATURES`) sind berechnet, aber NICHT im Modell: im Backtest kein Gewinn.
+  Im Dashboard nur als Hinweis („Europapokal vor/in n Tagen“).
+- `features/availability.py` Ausfall-Gewicht je Team: Anteil fehlender Minuten / xG+xA /
+  Defensivminuten (Understat-Spielerdaten, Tabelle player_season_stats) aus dem letzten
+  Snapshot vor dem Spieltag. Anpassung der Raten ist eine NICHT validierte Schätzung
+  (keine Ausfall-Historie vor 2026-09-29): `predict` speichert jede Vorhersage doppelt
+  (Modell mit Suffix ` +ausfaelle` und ohne) → Live-A/B im Dashboard. Sobald genug
+  Snapshots vorliegen, Ausfälle datenbasiert ins LightGBM übernehmen.
 - `backtest/` Walk-forward, Metriken, Report, Benchmark; Parameter in
   data/reports/model_params.json (per `backtest --tune` nur auf Validierung gewählt),
   Live-LightGBM in data/reports/lgbm_model.txt (bei jedem `backtest` neu trainiert).
