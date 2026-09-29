@@ -45,8 +45,14 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
 - `ingest/` je Quelle ein Modul: `fetch`/`parse`/`store`/`ingest`
 - `models/dixon_coles.py` Dixon-Coles; `models/blend.py` aktuelles Modell: Dixon-Coles auf
   Toren + Dixon-Coles auf xG (eigener, stärkerer Time-Decay), log-λ gewichtet gemischt
+- `features/form.py` point-in-time Team-Features (Ruhetage, xG-/Tor-Form, Chancenverwertung,
+  Heim/Auswärts-Form, Tabelle, Saisonfortschritt); `models/lgbm.py` LightGBM-Korrekturstufe
+  (Poisson, DC-log-λ als Offset), je Saison nur auf Vorsaisons trainiert
 - `backtest/` Walk-forward, Metriken, Report, Benchmark; Parameter in
-  data/reports/model_params.json (per `backtest --tune` nur auf Validierung gewählt)
+  data/reports/model_params.json (per `backtest --tune` nur auf Validierung gewählt),
+  Live-LightGBM in data/reports/lgbm_model.txt (bei jedem `backtest` neu trainiert).
+  Fehlt die Datei, sagt `predict` ohne LightGBM vorher.
+- macOS: LightGBM braucht `brew install libomp`
 - `data/` ist gitignored (Cache, `fussball.sqlite`, Reports); `data_seed/` ist kuratiert
   und committet.
 

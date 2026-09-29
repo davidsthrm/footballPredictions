@@ -20,8 +20,12 @@ import pandas as pd
 
 from fussball import config, db
 from fussball.backtest import metrics, walkforward
-from fussball.backtest.run import load_params, model_name
+from fussball.backtest.run import LGBM_FILE, load_params, model_name
+from fussball.features import form
+from fussball.models import lgbm
 from fussball.models.blend import BlendedDixonColes
+from fussball.models.dixon_coles import score_matrix
+from fussball.models.lgbm import LGBMCorrector
 
 MAX_SPAN_DAYS = 4  # ein Spieltag erstreckt sich höchstens über Fr–Di
 EXPORT_FILE = config.REPORT_DIR / "next_matchday.json"
@@ -67,18 +71,39 @@ def refresh(con: sqlite3.Connection, max_age_h: float = 3.0) -> None:
     understat.ingest(con, seasons=season, max_age_h=max_age_h)
 
 
+def lgbm_correct(data: pd.DataFrame, base: pd.DataFrame, corrector: LGBMCorrector) -> pd.DataFrame:
+    """Wendet die LightGBM-Korrektur auf die DC-Raten der anstehenden Spiele an.
+
+    Die Spiele werden als Zeilen ohne Ergebnis an die Historie gehängt; die Features
+    entstehen mit derselben Funktion wie im Backtest (nur Spiele vor dem Spieltag).
+    """
+    pending = pd.DataFrame({
+        "match_id": -base.understat_match_id.to_numpy(), "league": base.league.to_numpy(),
+        "season": base.season.to_numpy(), "date": pd.to_datetime(base.date).to_numpy(),
+        "home": base.home_id.to_numpy(), "away": base.away_id.to_numpy(),
+        "hg": np.nan, "ag": np.nan, "xg_h": np.nan, "xg_a": np.nan, "tier": 1,
+        "country": base.league.map(lambda c: config.LEAGUES[c].country).to_numpy()})
+    feats = form.build(pd.concat([data, pending], ignore_index=True))
+    rows = lgbm.to_team_rows(feats[feats.match_id < 0],
+                             base.assign(match_id=-base.understat_match_id)[["match_id", "lam_h", "lam_a"]])
+    rates = lgbm.match_rates(rows, corrector.rates(rows)).set_index("match_id")
+    ids = -base.understat_match_id
+    return base.assign(lam_h=ids.map(rates.lam_h).to_numpy(), lam_a=ids.map(rates.lam_a).to_numpy())
+
+
 def predict(con: sqlite3.Connection, today: date | None = None,
             leagues: list[str] | None = None) -> pd.DataFrame:
     today = today or date.today()
     params = load_params()
-    name = model_name(params)
+    corrector = LGBMCorrector.load(LGBM_FILE)
+    name = model_name(params, with_lgbm=corrector is not None)
     cutoff = pd.Timestamp(today)  # Fit nutzt nur Ergebnisse mit date < heute
     data = live_fit_data(con)
     fixtures = db.read(con, "SELECT * FROM fixtures")
     names = dict(con.execute("SELECT team_id, name FROM teams").fetchall())
     created = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    rows = []
+    base = []
     for league in leagues or config.TOP_LEAGUES:
         md = next_matchday(fixtures[fixtures.league == league], today)
         if md.empty:
@@ -87,21 +112,27 @@ def predict(con: sqlite3.Connection, today: date | None = None,
         model = BlendedDixonColes.from_params(params).fit(data[data.country == country], cutoff)
         for f in md.itertuples():
             lam, mu = model.rates(f.home_id, f.away_id)
-            m = model.predict_matrix(f.home_id, f.away_id)
-            ph, pd_, pa = metrics.outcome_probs(m)
-            i, j = np.unravel_index(np.argmax(m), m.shape)
-            rows.append({
-                "created_at": created, "model": name, "cutoff_date": today.isoformat(),
+            base.append({
                 "understat_match_id": f.understat_match_id, "league": league, "season": f.season,
                 "kickoff_utc": f.kickoff_utc, "date": f.date, "home_id": f.home_id, "away_id": f.away_id,
                 "lam_h": lam, "lam_a": mu, "rho": model.rho,
-                "p_h": ph, "p_d": pd_, "p_a": pa, "pred_h": int(i), "pred_a": int(j),
-                "p_pred": float(m[i, j]), "matrix": json.dumps(np.round(m, 6).tolist()),
                 "unknown_team": not {f.home_id, f.away_id} <= set(model.params_["attack"]),
             })
-    out = pd.DataFrame(rows)
-    if out.empty:
-        return out
+    if not base:
+        return pd.DataFrame()
+    out = pd.DataFrame(base)
+    if corrector is not None:
+        out = lgbm_correct(data, out, corrector)
+
+    rows = []
+    for r in out.itertuples():
+        m = score_matrix(r.lam_h, r.lam_a, r.rho)
+        ph, pd_, pa = metrics.outcome_probs(m)
+        i, j = np.unravel_index(np.argmax(m), m.shape)
+        rows.append({"p_h": ph, "p_d": pd_, "p_a": pa, "pred_h": int(i), "pred_a": int(j),
+                     "p_pred": float(m[i, j]), "matrix": json.dumps(np.round(m, 6).tolist())})
+    out = pd.concat([out, pd.DataFrame(rows)], axis=1).assign(
+        created_at=created, model=name, cutoff_date=today.isoformat())
     db.upsert(con, "predictions", out.drop(columns=["unknown_team"]),
               key=["model", "understat_match_id", "cutoff_date"])
     out["home"] = out.home_id.map(names)

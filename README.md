@@ -6,7 +6,7 @@ Regeln und Konventionen stehen in [CLAUDE.md](CLAUDE.md).
 
 ## Setup
 ```bash
-brew install uv
+brew install uv libomp      # libomp: OpenMP-Laufzeit für LightGBM
 uv sync
 ```
 
@@ -38,6 +38,7 @@ in `.env` `FUSSBALL_DASHBOARD_COPY` auf eine Datei in iCloud Drive setzen, dann 
 das Dashboard nach jedem Lauf auch dort (Dateien-App auf dem iPhone).
 
 ## Geplanter Lauf (Snapshot + Vorhersage + Dashboard)
+Ablauf: Snapshot → Nachtraining (`backtest`, ~30 s) → Vorhersage → Dashboard.
 Nichts läuft dauerhaft: launchd startet `ops/daily.sh` zu festen Zeitpunkten, das Skript
 arbeitet ~10 Minuten und beendet sich. Verpasste Termine (Mac aus) werden beim Aufwachen
 nachgeholt.

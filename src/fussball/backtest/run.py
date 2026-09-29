@@ -5,8 +5,10 @@ Zeitliche Aufteilung (fest, um Leakage durch Tuning zu vermeiden):
   2016/17–test_from-1  Validierung (Tuning)
   ab test_from      Test (berichtete Zahlen)
 
-Modell: BlendedDixonColes (Tore + xG). Zum Vergleich läuft immer auch die reine
-Tor-Baseline mit; Ergebnis in model_comparison.csv.
+Modell: BlendedDixonColes (Tore + xG), darauf eine LightGBM-Korrekturstufe (Form,
+Tabelle, Ruhetage). LightGBM wird je Saison nur mit den Vorsaisons trainiert; die Anzahl
+Boosting-Runden per Early Stopping auf der letzten Validierungssaison. Zum Vergleich
+laufen die reine Tor-Baseline und DC+xG ohne LightGBM mit (model_comparison.csv).
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ import pandas as pd
 
 from fussball import config
 from fussball.backtest import benchmark, report, walkforward
+from fussball.features import form
+from fussball.models import lgbm
 
 GRID = {
     "xi": [0.0015, 0.002, 0.003],
@@ -32,6 +36,7 @@ BASELINE_PARAMS = {"xi": 0.002, "reg": 1.0, "w_xg": 0.0}
 DEFAULT_PARAMS = {"xi": 0.002, "reg": 1.0, "w_xg": 0.5, "xi_xg": 0.005}
 PARAMS_FILE = config.REPORT_DIR / "model_params.json"
 COMPARISON_FILE = config.REPORT_DIR / "model_comparison.csv"
+LGBM_FILE = config.REPORT_DIR / "lgbm_model.txt"
 
 
 def load_params() -> dict:
@@ -39,10 +44,11 @@ def load_params() -> dict:
     return json.loads(PARAMS_FILE.read_text()) if PARAMS_FILE.exists() else dict(DEFAULT_PARAMS)
 
 
-def model_name(p: dict) -> str:
+def model_name(p: dict, with_lgbm: bool = False) -> str:
     if not p.get("w_xg"):
         return f"dixon-coles xi={p['xi']} reg={p['reg']}"
-    return f"dc+xg xi={p['xi']} reg={p['reg']} w_xg={p['w_xg']} xi_xg={p['xi_xg']}"
+    name = f"dc+xg xi={p['xi']} reg={p['reg']} w_xg={p['w_xg']} xi_xg={p['xi_xg']}"
+    return name + " +lgbm" if with_lgbm else name
 
 
 def _half_life(xi: float) -> str:
@@ -63,11 +69,30 @@ def tune(data: pd.DataFrame, leagues: list[str], seasons: list[int]) -> pd.DataF
     return pd.DataFrame(rows).sort_values("logloss")
 
 
-def evaluate(con: sqlite3.Connection, data: pd.DataFrame, leagues: list[str], seasons: list[int],
-             params: dict, test_from: int) -> tuple[pd.DataFrame, pd.DataFrame]:
-    pred = walkforward.run(data, leagues, seasons, params)
+def evaluate(con: sqlite3.Connection, pred: pd.DataFrame, test_from: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     p = report.enrich(pred, benchmark.implied_probs(con))
     return p, report.summary(p, test_from)
+
+
+def lgbm_stage(data: pd.DataFrame, pred: pd.DataFrame, first_eval: int, test_from: int,
+               save_to=None) -> tuple[pd.DataFrame, int]:
+    """Korrigiert die DC-Vorhersagen je Saison mit einem nur auf Vorsaisons trainierten LightGBM."""
+    rows = lgbm.to_team_rows(form.build(data), pred)
+    rounds = lgbm.LGBMCorrector.tune_rounds(rows[rows.season.between(first_eval, test_from - 2)],
+                                            rows[rows.season == test_from - 1])
+    corrected = []
+    for s in sorted(pred.season.unique()):
+        if s <= first_eval:
+            continue  # keine Vorsaison mit Vorhersagen zum Trainieren
+        m = lgbm.LGBMCorrector(rounds).fit(rows[rows.season < s])
+        te = rows[rows.season == s]
+        corrected.append(lgbm.match_rates(te, m.rates(te)))
+    new = pd.concat(corrected).set_index("match_id")
+    out = pred.set_index("match_id")
+    out.update(new)
+    if save_to is not None:
+        lgbm.LGBMCorrector(rounds).fit(rows).save(save_to)
+    return walkforward.apply_rates(out.reset_index()), rounds
 
 
 def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | None = None,
@@ -95,14 +120,18 @@ def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | 
           + (f", xG {_half_life(params['xi_xg'])})" if params.get("w_xg") else ")"))
 
     seasons = list(range(first_eval, config.current_season() + 1))
-    p, summ = evaluate(con, data, leagues, seasons, params, test_from)
-    _, base = evaluate(con, data, leagues, seasons, BASELINE_PARAMS, test_from)
+    dc_pred = walkforward.run(data, leagues, seasons, params)
+    stacked, rounds = lgbm_stage(data, dc_pred, first_eval, test_from, save_to=LGBM_FILE)
+    print(f"LightGBM-Korrektur: {rounds} Runden (Early Stopping auf {test_from - 1})")
+    p, summ = evaluate(con, stacked, test_from)
+    _, dc = evaluate(con, dc_pred, test_from)
+    _, base = evaluate(con, walkforward.run(data, leagues, seasons, BASELINE_PARAMS), test_from)
     cols = ["n", "logloss", "rps", "rps_odds", "exact_%", "diff_%", "tend_%", "exact_1:1_%"]
+    test_row = lambda s: s.set_index(["league", "season"]).loc[("ALL", "TEST"), cols].to_dict()
     comparison = pd.DataFrame([
-        {"model": model_name(BASELINE_PARAMS), "rolle": "Baseline (nur Tore)",
-         **base.set_index(["league", "season"]).loc[("ALL", "TEST"), cols].to_dict()},
-        {"model": model_name(params), "rolle": "aktuell",
-         **summ.set_index(["league", "season"]).loc[("ALL", "TEST"), cols].to_dict()},
+        {"model": model_name(BASELINE_PARAMS), "rolle": "Baseline (nur Tore)", **test_row(base)},
+        {"model": model_name(params), "rolle": "Tore + xG", **test_row(dc)},
+        {"model": model_name(params, with_lgbm=True), "rolle": "aktuell", **test_row(summ)},
     ])
 
     test = p[p.season >= test_from]
@@ -116,7 +145,7 @@ def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | 
                              f"Ergebnisverteilung Testzeitraum ab {config.season_label(test_from)} "
                              f"({len(test):,} Spiele)")
     headline = summ[summ.season.isin(["TEST", "VALID"])].sort_values(["season", "league"])
-    md = [f"# Backtest {model_name(params)}\n",
+    md = [f"# Backtest {model_name(params, with_lgbm=True)}\n",
           f"Validierung {valid[0]}–{valid[-1]}, Test ab {test_from}. Log-Loss auf 10×10-Ergebnismatrix, "
           f"RPS auf 1X2, Treffer des argmax-Tipps. `rps_odds` = Pinnacle/Markt vor Schluss, "
           f"`rps_model_same` = Modell-RPS auf denselben Spielen.\n",

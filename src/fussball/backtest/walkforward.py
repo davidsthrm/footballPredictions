@@ -72,3 +72,16 @@ def run(data: pd.DataFrame, leagues: list[str], seasons: list[int], params: dict
     with ProcessPoolExecutor(max_workers=workers or len(leagues)) as ex:
         futs = [ex.submit(predict_league, data, lg, seasons, params, lag_days) for lg in leagues]
         return pd.concat([f.result() for f in futs], ignore_index=True)
+
+
+def apply_rates(pred: pd.DataFrame) -> pd.DataFrame:
+    """Berechnet Matrix-Kennzahlen (p_actual, 1X2, Tipp) neu aus lam_h, lam_a, rho."""
+    from fussball.models.dixon_coles import score_matrix
+    rows = []
+    for r in pred.itertuples():
+        m = score_matrix(r.lam_h, r.lam_a, r.rho)
+        ph, pd_, pa = metrics.outcome_probs(m)
+        i, j = np.unravel_index(np.argmax(m), m.shape)
+        rows.append((m[min(r.hg, MAX_GOALS), min(r.ag, MAX_GOALS)], ph, pd_, pa, int(i), int(j), m[i, j]))
+    cols = ["p_actual", "p_h", "p_d", "p_a", "pred_h", "pred_a", "p_pred"]
+    return pred.assign(**dict(zip(cols, map(list, zip(*rows)))))

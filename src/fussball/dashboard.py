@@ -102,8 +102,11 @@ def describe_model(model: str | None) -> str:
         return model
     if "w_xg" not in p:
         return f"Dixon-Coles auf Toren (Halbwertszeit {half(p['xi'])})"
-    return (f"Dixon-Coles aus Toren und xG (xG-Gewicht {float(p['w_xg']):.0%}, Halbwertszeit "
+    desc = (f"Dixon-Coles aus Toren und xG (xG-Gewicht {float(p['w_xg']):.0%}, Halbwertszeit "
             f"Tore {half(p['xi'])}, xG {half(p['xi_xg'])})").replace("%", " %")
+    if "+lgbm" in model:
+        desc += " mit LightGBM-Korrektur (Saisonphase, xG-Form, Tabelle, Ruhetage)"
+    return desc
 
 
 # --- Formatierung -------------------------------------------------------------------------
@@ -246,6 +249,11 @@ def backtest_section(cmp: pd.DataFrame | None, model: str | None) -> str:
     if cmp is None or "aktuell" not in cmp.index:
         return ""
     a, b = cmp.loc["aktuell"], cmp.loc["Baseline (nur Tore)"]
+    steps = "".join(
+        f"<tr><td>{escape('Tore + xG + LightGBM (aktuell)' if role == 'aktuell' else role)}</td><td>{_num(r['exact_%'])} %</td><td>{_num(r['tend_%'])} %</td>"
+        f"<td>{_num(r['logloss'], 3)}</td></tr>" for role, r in cmp.iterrows())
+    steps = (f'<table class="stats"><thead><tr><th>Modell</th><th>Exakt</th><th>Tendenz</th>'
+             f'<th>Log-Loss</th></tr></thead><tbody>{steps}</tbody></table>')
     return f"""<section id="modell" class="plain"><h2>Einordnung</h2>
 <p class="muted small">{escape(describe_model(model))}. Backtest ab 2019/20 · {_num(a['n'], 0)} Spiele,
 jeweils nur mit Daten bis zum Vortag.</p>
@@ -255,8 +263,9 @@ jeweils nur mit Daten bis zum Vortag.</p>
   <div><strong>{_num(b['exact_%'])} %</strong><span>bisheriges Modell (nur Tore)</span></div>
   <div><strong>{_num(a['exact_1:1_%'])} %</strong><span>zum Vergleich: immer 1:1</span></div>
 </div>
-<p class="muted small">Log-Loss {_num(a['logloss'], 3)} (vorher {_num(b['logloss'], 3)}) · RPS {_num(a['rps'], 3)}
-(vorher {_num(b['rps'], 3)}, Wettmarkt {_num(a['rps_odds'], 3)}) – jeweils kleiner = besser.</p></section>"""
+{steps}
+<p class="muted small">Log-Loss {_num(a['logloss'], 3)} (nur Tore {_num(b['logloss'], 3)}) · RPS {_num(a['rps'], 3)}
+(nur Tore {_num(b['rps'], 3)}, Wettmarkt {_num(a['rps_odds'], 3)}) – jeweils kleiner = besser.</p></section>"""
 
 
 CSS = """
@@ -320,7 +329,7 @@ border-radius:10px;padding:8px 6px;cursor:pointer;user-select:none;-webkit-user-
 .stats{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums;background:var(--surface);
 border-radius:12px;overflow:hidden}
 .stats th,.stats td{text-align:right;padding:8px 10px;border-bottom:1px solid var(--line)}
-.stats th:first-child,.stats td:first-child{text-align:left}.stats th{font-size:12px;color:var(--muted);font-weight:600}
+.stats th:first-child,.stats td:first-child{text-align:left}.stats td:not(:first-child){white-space:nowrap}.stats th{font-size:12px;color:var(--muted);font-weight:600}
 .recent{list-style:none;padding:0;margin:0;font-size:13px}.recent li{padding:6px 0;border-bottom:1px solid var(--line)}
 .mark{display:inline-block;width:1.5em;font-weight:800}.mark.ok{color:var(--ok)}.mark.no{color:var(--no)}.mark.half{color:var(--half)}
 .kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:10px 0}
