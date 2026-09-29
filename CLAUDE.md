@@ -35,7 +35,9 @@ uv run fussball check [-v]                     # Datenqualität, Exit 1 bei ERRO
 uv run fussball backtest [--tune]              # Walk-forward + Report in data/reports/
 uv run fussball predict [--no-refresh]         # nächster Spieltag -> predictions + JSON
 uv run fussball scorecard                      # echte Trefferbilanz
+uv run fussball dashboard                      # data/dashboard/index.html (+ FUSSBALL_DASHBOARD_COPY)
 ```
+Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Dauerprozess.
 
 ## Aufbau
 - `src/fussball/config.py` Ligen, Saisons (Startjahr: 2014 = 2014/15), Pfade
@@ -55,4 +57,6 @@ uv run fussball scorecard                      # echte Trefferbilanz
 - 2. Ligen (E1, SP2, I2, F2, D2) sind reine Fit-Daten (Aufsteiger-Stärke), keine Ziele.
 - Zeitliche Aufteilung im Backtest: 2014–15 Burn-in, 2016–2018 Validierung (Tuning),
   ab 2019/20 Test. Nie auf Testsaisons tunen.
+- Dashboard ist eine statische HTML-Datei ohne JavaScript (muss in der iOS-Dateien-
+  Vorschau funktionieren); Zahlen im deutschen Format, Zeiten in Europe/Berlin.
 - Code und Kommentare auf Deutsch, Bezeichner auf Englisch.

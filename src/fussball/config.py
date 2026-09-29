@@ -8,11 +8,27 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_dotenv(path: Path) -> None:
+    """Minimaler .env-Loader (KEY=VALUE je Zeile); gesetzte Umgebungsvariablen haben Vorrang."""
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv(ROOT / ".env")
 DATA_DIR = Path(os.environ.get("FUSSBALL_DATA_DIR", ROOT / "data"))
 RAW_DIR = DATA_DIR / "raw"
 REPORT_DIR = DATA_DIR / "reports"
 DB_PATH = Path(os.environ.get("FUSSBALL_DB", DATA_DIR / "fussball.sqlite"))
 SEED_DIR = ROOT / "data_seed"
+# Optionale zweite Zieldatei fürs Dashboard, z.B. in iCloud Drive (Zugriff vom Handy)
+DASHBOARD_COPY = os.environ.get("FUSSBALL_DASHBOARD_COPY") or None
 
 FIRST_SEASON = 2014  # Saison 2014/15; Saisons werden über ihr Startjahr identifiziert
 

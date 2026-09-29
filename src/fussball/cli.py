@@ -129,6 +129,15 @@ def cmd_predict(args) -> int:
     return 0
 
 
+def cmd_dashboard(args) -> int:
+    from fussball import dashboard
+    con = db.connect()
+    targets = args.out or [dashboard.OUT_FILE] + ([config.DASHBOARD_COPY] if config.DASHBOARD_COPY else [])
+    for out in targets:
+        print("Dashboard:", dashboard.build(con, out))
+    return 0
+
+
 def cmd_scorecard(args) -> int:
     from fussball import predict
     sc = predict.scorecard(db.connect())
@@ -168,6 +177,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--date", help="Stichtag YYYY-MM-DD (Default: heute)")
     s.add_argument("--no-refresh", action="store_true", help="laufende Saison nicht neu abrufen")
     s.set_defaults(func=cmd_predict)
+
+    s = sub.add_parser("dashboard", help="Statisches HTML-Dashboard erzeugen")
+    s.add_argument("--out", action="append",
+                   help="Zieldatei (mehrfach möglich, z.B. zusätzlich in iCloud Drive)")
+    s.set_defaults(func=cmd_dashboard)
 
     s = sub.add_parser("scorecard", help="Echte Trefferbilanz der gespeicherten Vorhersagen")
     s.set_defaults(func=cmd_scorecard)

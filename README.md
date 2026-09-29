@@ -28,14 +28,26 @@ Cutoff-Datum in `predictions` gespeichert und nie überschrieben; die Scorecard 
 je Spiel die letzte Vorhersage vor dem Spieltag aus. Export fürs Dashboard:
 `data/reports/next_matchday.json`.
 
-## Täglicher Job (Snapshot + Vorhersage)
-Verfügbarkeiten lassen sich nicht nachträglich rekonstruieren, deshalb läuft der
-Transfermarkt-Snapshot täglich (ca. 100 Requests, ~9 Minuten), danach `predict`:
+## Dashboard
 ```bash
-uv run fussball snapshot transfermarkt     # manuell
-ops/install_launchd.sh                     # als launchd-Job, täglich 08:00
+uv run fussball dashboard      # -> data/dashboard/index.html (eine Datei, ohne JavaScript)
 ```
-Log: `data/logs/daily.log`. Bei Blockade (403) bricht der Scraper mit Exit-Code 2 ab.
+Mobil-first; im Zentrum der nächste Spieltag je Liga (Tipp, 1X2, erwartete Tore,
+Ergebnismatrix, Ausfälle), darunter Live-Bilanz und Backtest-Einordnung. Fürs Handy:
+in `.env` `FUSSBALL_DASHBOARD_COPY` auf eine Datei in iCloud Drive setzen, dann liegt
+das Dashboard nach jedem Lauf auch dort (Dateien-App auf dem iPhone).
+
+## Geplanter Lauf (Snapshot + Vorhersage + Dashboard)
+Nichts läuft dauerhaft: launchd startet `ops/daily.sh` zu festen Zeitpunkten, das Skript
+arbeitet ~10 Minuten und beendet sich. Verpasste Termine (Mac aus) werden beim Aufwachen
+nachgeholt.
+```bash
+ops/install_launchd.sh          # täglich 08:00
+ops/install_launchd.sh 2 5      # nur Di + Fr
+```
+Log: `data/logs/daily.log`. Transfermarkt: ca. 100 Requests pro Lauf; bei Blockade (403)
+bricht der Scraper mit Exit-Code 2 ab. Verfügbarkeiten lassen sich nicht nachträglich
+rekonstruieren – je seltener der Snapshot, desto gröber die Ausfall-Historie.
 Neue Vereine (Aufsteiger) meldet `fussball check` als ungemappt → in
 `data_seed/team_name_map.csv` ergänzen, dann `uv run fussball teams`.
 
