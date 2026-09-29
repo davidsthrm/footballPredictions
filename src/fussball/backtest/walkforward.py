@@ -31,7 +31,7 @@ def load_fit_data(con: sqlite3.Connection) -> pd.DataFrame:
 
 
 def predict_league(data: pd.DataFrame, league: str, seasons: list[int], xi: float,
-                   reg: float = 1.0, lag_days: int = 1) -> pd.DataFrame:
+                   reg: float = 1.0, lag_days: int = 1, window_days: int = 3 * 365) -> pd.DataFrame:
     """Walk-forward-Vorhersagen für alle Spiele von `league` in `seasons`."""
     country = config.LEAGUES[league].country
     train = data[data.country == country]
@@ -40,7 +40,7 @@ def predict_league(data: pd.DataFrame, league: str, seasons: list[int], xi: floa
     out = []
     for day, games in target.groupby("date", sort=True):
         cutoff = day - pd.Timedelta(days=lag_days - 1)  # fit nutzt date < cutoff
-        model = DixonColes(xi=xi, reg=reg).fit(train, cutoff, warm_start=prev)
+        model = DixonColes(xi=xi, reg=reg, window_days=window_days).fit(train, cutoff, warm_start=prev)
         prev = model
         for g in games.itertuples():
             lam, mu = model.rates(g.home, g.away, tier=1)

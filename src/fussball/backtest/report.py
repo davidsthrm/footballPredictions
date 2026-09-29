@@ -70,6 +70,7 @@ def summary(p: pd.DataFrame, test_from: int) -> pd.DataFrame:
     ]
     out = pd.concat(parts, ignore_index=True)
     out["season"] = out.season.astype(str)
+    out["n"] = out.n.astype(int)
     return out[["league", "season"] + [c for c in out.columns if c not in ("league", "season")]]
 
 
