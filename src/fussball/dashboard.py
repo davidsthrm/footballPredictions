@@ -12,6 +12,7 @@ eingebettet (base64), die Datei lädt also nichts nach.
 from __future__ import annotations
 
 import base64
+import re
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -149,6 +150,9 @@ def describe_model(model: str | None) -> str:
         return f"Dixon-Coles auf Toren (Halbwertszeit {half(p['xi'])})"
     desc = (f"Dixon-Coles aus Toren und xG (xG-Gewicht {float(p['w_xg']):.0%}, Halbwertszeit "
             f"Tore {half(p['xi'])}, xG {half(p['xi_xg'])})").replace("%", " %")
+    ens = re.search(r"ens(\d+)", model)
+    if ens:
+        desc += f", gemittelt über {ens.group(1)} Parametervarianten"
     if "+lgbm" in model:
         desc += " mit LightGBM-Korrektur (Saisonphase, xG-Form, Tabelle, Ruhetage)"
     return desc

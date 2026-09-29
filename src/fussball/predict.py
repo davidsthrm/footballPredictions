@@ -24,7 +24,7 @@ from fussball.backtest.run import LGBM_FILE, TIP_WEIGHTS_FILE, load_params, mode
 from fussball.features import availability, form
 from fussball.ingest import europe
 from fussball.models import lgbm, tipping
-from fussball.models.blend import BlendedDixonColes
+from fussball.models.blend import EnsembleDixonColes
 from fussball.models.dixon_coles import score_matrix
 from fussball.models.lgbm import LGBMCorrector
 
@@ -112,7 +112,7 @@ def predict(con: sqlite3.Connection, today: date | None = None,
         if md.empty:
             continue
         country = config.LEAGUES[league].country
-        model = BlendedDixonColes.from_params(params).fit(data[data.country == country], cutoff)
+        model = EnsembleDixonColes.from_params(params).fit(data[data.country == country], cutoff)
         for f in md.itertuples():
             lam, mu = model.rates(f.home_id, f.away_id)
             base.append({

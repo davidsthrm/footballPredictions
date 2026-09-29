@@ -60,6 +60,10 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
   (keine Ausfall-Historie vor 2026-09-29): `predict` speichert jede Vorhersage doppelt
   (Modell mit Suffix ` +ausfaelle` und ohne) → Live-A/B im Dashboard. Sobald genug
   Snapshots vorliegen, Ausfälle datenbasiert ins LightGBM übernehmen.
+- Ensemble (`EnsembleDixonColes`): Mittel der log-λ der 3 besten Tore+xG-Parametersätze
+  der Validierung (model_params.json → "ensemble"); Test: ΔLog-Loss −0,0005 (signifikant).
+  LightGBM-Runden per Early Stopping gemittelt über alle Validierungssaisons (nicht eine).
+  Regel: Varianten nie nachträglich nach Testergebnis auswählen.
 - `backtest/` Walk-forward, Metriken, Report, Benchmark; Parameter in
   data/reports/model_params.json (per `backtest --tune` nur auf Validierung gewählt),
   Live-LightGBM in data/reports/lgbm_model.txt (bei jedem `backtest` neu trainiert).

@@ -100,3 +100,18 @@ def test_blend_without_xg_equals_goals_model_and_uses_xg():
     assert blend.xg.params_["rho"] == 0.0
     m = blend.predict_matrix("T0", "T1")
     assert m.sum() == pytest.approx(1.0)
+
+
+def test_ensemble_mean_of_members():
+    from fussball.models.blend import BlendedDixonColes, EnsembleDixonColes
+    df, _, _ = synthetic_league(n_teams=6, seasons=2, seed=5)
+    df["xg_h"], df["xg_a"] = df.hg * 0.9 + 0.2, df.ag * 0.9 + 0.2
+    cutoff = df.date.max() + pd.Timedelta(days=1)
+    p1 = {"xi": 0.002, "reg": 0.5, "w_xg": 0.6, "xi_xg": 0.005}
+    p2 = {"xi": 0.0015, "reg": 0.5, "w_xg": 0.5, "xi_xg": 0.007}
+    assert isinstance(EnsembleDixonColes.from_params(p1), BlendedDixonColes)   # ohne Ensemble: Einzelmodell
+    ens = EnsembleDixonColes.from_params({**p1, "ensemble": [p1, p2]}).fit(df, cutoff)
+    a = BlendedDixonColes.from_params(p1).fit(df, cutoff).rates("T0", "T1")
+    b = BlendedDixonColes.from_params(p2).fit(df, cutoff).rates("T0", "T1")
+    assert ens.rates("T0", "T1") == pytest.approx(tuple(np.sqrt(np.multiply(a, b))))
+    assert ens.predict_matrix("T0", "T1").sum() == pytest.approx(1.0)

@@ -36,6 +36,7 @@ GRID = {
 }
 BASELINE_PARAMS = {"xi": 0.002, "reg": 1.0, "w_xg": 0.0}
 DEFAULT_PARAMS = {"xi": 0.002, "reg": 1.0, "w_xg": 0.5, "xi_xg": 0.005}
+ENSEMBLE_SIZE = 3   # Mittel der besten Parametersätze der Validierung (Test: 3 ≈ 5 > 1)
 PARAMS_FILE = config.REPORT_DIR / "model_params.json"
 COMPARISON_FILE = config.REPORT_DIR / "model_comparison.csv"
 LGBM_FILE = config.REPORT_DIR / "lgbm_model.txt"
@@ -47,10 +48,18 @@ def load_params() -> dict:
     return json.loads(PARAMS_FILE.read_text()) if PARAMS_FILE.exists() else dict(DEFAULT_PARAMS)
 
 
+def ensemble_from_grid(grid: pd.DataFrame, k: int = ENSEMBLE_SIZE) -> list[dict]:
+    """Die k besten Tore+xG-Parametersätze (nach Validierungs-Log-Loss)."""
+    g = grid[grid.w_xg > 0].sort_values("logloss").head(k)
+    return [{key: float(r[key]) for key in GRID} for _, r in g.iterrows()]
+
+
 def model_name(p: dict, with_lgbm: bool = False) -> str:
     if not p.get("w_xg"):
         return f"dixon-coles xi={p['xi']} reg={p['reg']}"
     name = f"dc+xg xi={p['xi']} reg={p['reg']} w_xg={p['w_xg']} xi_xg={p['xi_xg']}"
+    if p.get("ensemble"):
+        name += f" ens{len(p['ensemble'])}"
     return name + " +lgbm" if with_lgbm else name
 
 
@@ -82,8 +91,10 @@ def lgbm_stage(data: pd.DataFrame, pred: pd.DataFrame, first_eval: int, test_fro
                save_to=None, europe_dates: pd.DataFrame | None = None) -> tuple[pd.DataFrame, int]:
     """Korrigiert die DC-Vorhersagen je Saison mit einem nur auf Vorsaisons trainierten LightGBM."""
     rows = lgbm.to_team_rows(form.build(data, europe_dates), pred)
-    rounds = lgbm.LGBMCorrector.tune_rounds(rows[rows.season.between(first_eval, test_from - 2)],
-                                            rows[rows.season == test_from - 1])
+    # Runden über alle Validierungssaisons mitteln (jeweils nur mit Vorsaisons trainiert)
+    folds = [(rows[rows.season.between(first_eval, v - 1)], rows[rows.season == v])
+             for v in range(first_eval + 1, test_from)]
+    rounds = lgbm.LGBMCorrector.tune_rounds(folds)
     corrected = []
     for s in sorted(pred.season.unique()):
         if s <= first_eval:
@@ -114,6 +125,7 @@ def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | 
         print(grid.head(8).to_string(index=False))
         best = grid.iloc[0]
         params = {k: float(best[k]) for k in GRID if pd.notna(best.get(k))}
+        params["ensemble"] = ensemble_from_grid(grid)
         params["tuned_on"] = valid
         PARAMS_FILE.write_text(json.dumps(params, indent=1))
     else:
@@ -127,7 +139,8 @@ def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | 
     dc_pred = walkforward.run(data, leagues, seasons, params)
     stacked, rounds = lgbm_stage(data, dc_pred, first_eval, test_from, save_to=LGBM_FILE,
                                  europe_dates=europe.team_dates(con))
-    print(f"LightGBM-Korrektur: {rounds} Runden (Early Stopping auf {test_from - 1})")
+    print(f"LightGBM-Korrektur: {rounds} Runden (Early Stopping, gemittelt über "
+          f"{first_eval + 1}–{test_from - 1})")
     p, summ = evaluate(con, stacked, test_from)
     _, dc = evaluate(con, dc_pred, test_from)
     _, base = evaluate(con, walkforward.run(data, leagues, seasons, BASELINE_PARAMS), test_from)

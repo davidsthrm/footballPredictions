@@ -62,3 +62,41 @@ class BlendedDixonColes:
     def predict_matrix(self, home: str, away: str, tier: int = 1) -> np.ndarray:
         lam, mu = self.rates(home, away, tier)
         return score_matrix(lam, mu, self.rho)
+
+
+@dataclass
+class EnsembleDixonColes:
+    """Mittelt mehrere BlendedDixonColes (unterschiedliche Decay-/Gewichts-Parameter).
+
+    log λ = Mittel der log λ der Mitglieder, ρ = Mittel. Verringert die Varianz der
+    Parameterwahl, ohne neue freie Parameter einzuführen.
+    """
+    members: list[BlendedDixonColes]
+
+    @classmethod
+    def from_params(cls, p: dict) -> BlendedDixonColes | EnsembleDixonColes:
+        if not p.get("ensemble"):
+            return BlendedDixonColes.from_params(p)
+        return cls([BlendedDixonColes.from_params(m) for m in p["ensemble"]])
+
+    def fit(self, df: pd.DataFrame, cutoff: pd.Timestamp,
+            warm_start: EnsembleDixonColes | None = None) -> EnsembleDixonColes:
+        prev = warm_start.members if warm_start else [None] * len(self.members)
+        self.members = [m.fit(df, cutoff, w) for m, w in zip(self.members, prev)]
+        return self
+
+    @property
+    def params_(self) -> dict:
+        return self.members[0].params_
+
+    @property
+    def rho(self) -> float:
+        return float(np.mean([m.rho for m in self.members]))
+
+    def rates(self, home: str, away: str, tier: int = 1) -> tuple[float, float]:
+        r = np.log([m.rates(home, away, tier) for m in self.members])
+        return tuple(float(x) for x in np.exp(r.mean(axis=0)))
+
+    def predict_matrix(self, home: str, away: str, tier: int = 1) -> np.ndarray:
+        lam, mu = self.rates(home, away, tier)
+        return score_matrix(lam, mu, self.rho)

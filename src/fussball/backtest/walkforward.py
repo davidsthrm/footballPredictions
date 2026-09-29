@@ -15,7 +15,7 @@ import pandas as pd
 
 from fussball import config, db
 from fussball.backtest import metrics
-from fussball.models.blend import BlendedDixonColes
+from fussball.models.blend import EnsembleDixonColes
 from fussball.models.dixon_coles import MAX_GOALS
 
 BURN_IN_SEASONS = 2
@@ -47,7 +47,7 @@ def predict_league(data: pd.DataFrame, league: str, seasons: list[int], params: 
     out = []
     for day, games in target.groupby("date", sort=True):
         cutoff = day - pd.Timedelta(days=lag_days - 1)  # fit nutzt date < cutoff
-        model = BlendedDixonColes.from_params(params).fit(train, cutoff, warm_start=prev)
+        model = EnsembleDixonColes.from_params(params).fit(train, cutoff, warm_start=prev)
         prev = model
         for g in games.itertuples():
             lam, mu = model.rates(g.home, g.away, tier=1)

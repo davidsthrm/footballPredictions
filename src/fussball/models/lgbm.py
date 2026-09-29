@@ -41,14 +41,17 @@ class LGBMCorrector:
         return self
 
     @classmethod
-    def tune_rounds(cls, train: pd.DataFrame, valid: pd.DataFrame) -> int:
-        """Anzahl Boosting-Runden per Early Stopping auf einer Validierungssaison."""
+    def tune_rounds(cls, folds: list[tuple[pd.DataFrame, pd.DataFrame]]) -> int:
+        """Boosting-Runden per Early Stopping, gemittelt über mehrere (Train, Validierung)-Folds."""
         feats = list(FEATURES)
-        dtr = lgb.Dataset(train[feats], train.goals, init_score=cls.offset(train))
-        dva = lgb.Dataset(valid[feats], valid.goals, init_score=cls.offset(valid), reference=dtr)
-        b = lgb.train(PARAMS, dtr, MAX_ROUNDS, valid_sets=[dva],
-                      callbacks=[lgb.early_stopping(100, verbose=False)])
-        return max(int(b.best_iteration), 1)
+        best = []
+        for train, valid in folds:
+            dtr = lgb.Dataset(train[feats], train.goals, init_score=cls.offset(train))
+            dva = lgb.Dataset(valid[feats], valid.goals, init_score=cls.offset(valid), reference=dtr)
+            b = lgb.train(PARAMS, dtr, MAX_ROUNDS, valid_sets=[dva],
+                          callbacks=[lgb.early_stopping(100, verbose=False)])
+            best.append(max(int(b.best_iteration), 1))
+        return int(round(np.mean(best)))
 
     def rates(self, rows: pd.DataFrame) -> np.ndarray:
         """Korrigiertes λ je Team-Zeile."""
