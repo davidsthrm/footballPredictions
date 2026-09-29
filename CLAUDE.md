@@ -33,6 +33,8 @@ uv run fussball snapshot transfermarkt         # täglicher Snapshot Verletzunge
 uv run fussball teams                          # data_seed/team_name_map.csv -> DB
 uv run fussball check [-v]                     # Datenqualität, Exit 1 bei ERROR
 uv run fussball backtest [--tune]              # Walk-forward + Report in data/reports/
+uv run fussball predict [--no-refresh]         # nächster Spieltag -> predictions + JSON
+uv run fussball scorecard                      # echte Trefferbilanz
 ```
 
 ## Aufbau
@@ -46,6 +48,10 @@ uv run fussball backtest [--tune]              # Walk-forward + Report in data/r
 ## Konventionen
 - Kanonische `team_id` = Slug des football-data.co.uk-Namens. Namen anderer Quellen
   nur über `data_seed/team_name_map.csv` (Vorschläge prüfen, dann committen).
+- `predictions` ist append-only (Schlüssel model + Spiel + cutoff_date); nie nachträglich
+  ändern, sonst ist die Live-Bilanz wertlos.
+- Spielplan und frische Ergebnisse kommen aus Understat (UTC-Zeiten); football-data.co.uk
+  hinkt einige Tage hinterher und ist die Quelle für Historie und 2. Ligen.
 - 2. Ligen (E1, SP2, I2, F2, D2) sind reine Fit-Daten (Aufsteiger-Stärke), keine Ziele.
 - Zeitliche Aufteilung im Backtest: 2014–15 Burn-in, 2016–2018 Validierung (Tuning),
   ab 2019/20 Test. Nie auf Testsaisons tunen.

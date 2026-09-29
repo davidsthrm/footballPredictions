@@ -24,12 +24,13 @@ SOURCE = "understat"
 CURRENT_SEASON_MAX_AGE_H = 12
 
 
-def fetch(fetcher: Fetcher, league: str, season: int) -> dict:
+def fetch(fetcher: Fetcher, league: str, season: int,
+          max_age_h: float = CURRENT_SEASON_MAX_AGE_H) -> dict:
     ul = config.LEAGUES[league].understat
     name = f"league/{ul}_{season}.json"
     path = fetcher.path(name)
     refresh = (season == config.current_season() and path.exists()
-               and time.time() - path.stat().st_mtime > CURRENT_SEASON_MAX_AGE_H * 3600)
+               and time.time() - path.stat().st_mtime > max_age_h * 3600)
     raw = fetcher.get(URL.format(league=ul, season=season), name, refresh=refresh, headers={
         "X-Requested-With": "XMLHttpRequest",
         "Referer": f"https://understat.com/league/{ul}/{season}",
@@ -118,20 +119,52 @@ def suggest_names(con: sqlite3.Connection, xg: pd.DataFrame) -> list[dict]:
     return [{"source": SOURCE, "source_name": r.source_name, "team_id": r.team_id} for r in best.itertuples()]
 
 
+def parse_fixtures(data: dict, league: str, season: int) -> pd.DataFrame:
+    """Noch nicht gespielte Spiele (isResult = false). Understat-Zeiten sind UTC."""
+    rows = [{"understat_match_id": int(m["id"]), "league": league, "season": season,
+             "kickoff_utc": m["datetime"], "date": m["datetime"][:10],
+             "home": m["h"]["title"], "away": m["a"]["title"]}
+            for m in data["dates"] if not m.get("isResult")]
+    return pd.DataFrame(rows, columns=["understat_match_id", "league", "season", "kickoff_utc",
+                                       "date", "home", "away"])
+
+
+def store_fixtures(con: sqlite3.Connection, fx: pd.DataFrame, league: str, season: int,
+                   fetched_at: str | None = None) -> set[str]:
+    """Ersetzt den Spielplan einer Liga/Saison. Liefert ungemappte Namen."""
+    mp = teams.name_map(con, SOURCE)
+    unmapped = (set(fx.home) | set(fx.away)) - set(mp)
+    fx = fx.assign(home_id=fx.home.map(mp), away_id=fx.away.map(mp), fetched_at=fetched_at)
+    fx = fx.dropna(subset=["home_id", "away_id"])
+    with con:
+        con.execute("DELETE FROM fixtures WHERE league = ? AND season = ?", (league, season))
+    db.upsert(con, "fixtures", fx[["understat_match_id", "league", "season", "kickoff_utc", "date",
+                                   "home_id", "away_id", "fetched_at"]], key=["understat_match_id"])
+    return unmapped
+
+
 def ingest(con: sqlite3.Connection, leagues: list[str] | None = None,
            seasons: list[int] | None = None, fetcher: Fetcher | None = None,
-           suggest: bool = False) -> tuple[pd.DataFrame, list[dict]]:
+           suggest: bool = False, max_age_h: float = CURRENT_SEASON_MAX_AGE_H,
+           ) -> tuple[pd.DataFrame, list[dict]]:
     fetcher = fetcher or Fetcher("understat", min_interval=3.0)
     leagues = leagues or config.TOP_LEAGUES
     summary, suggestions = [], []
     for season in seasons or config.seasons():
         for league in leagues:
-            xg = parse(fetch(fetcher, league, season), league, season)
+            data = fetch(fetcher, league, season, max_age_h)
+            unmapped = set()
+            if season == config.current_season():
+                name = f"league/{config.LEAGUES[league].understat}_{season}.json"
+                unmapped |= store_fixtures(con, parse_fixtures(data, league, season), league, season,
+                                           fetcher.fetched_at(name))
+            xg = parse(data, league, season)
             if xg.empty:
                 continue
             if suggest:
                 suggestions += suggest_names(con, xg)
-            n, unmapped = store(con, xg)
+            n, unmapped_xg = store(con, xg)
+            unmapped |= unmapped_xg
             summary.append({"league": league, "season": season, "rows": n,
                             "unmapped": ", ".join(sorted(unmapped))})
     return pd.DataFrame(summary), suggestions

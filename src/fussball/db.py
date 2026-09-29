@@ -103,6 +103,40 @@ CREATE TABLE IF NOT EXISTS availability_snapshots (
     PRIMARY KEY (snapshot_date, tm_club_id, tm_player_id, category)
 );
 
+-- Aktueller Spielplan (noch nicht gespielte Spiele, Quelle Understat). Wird pro
+-- Liga/Saison bei jedem Ingest komplett ersetzt, Verlegungen werden so übernommen.
+CREATE TABLE IF NOT EXISTS fixtures (
+    understat_match_id INTEGER PRIMARY KEY,
+    league      TEXT NOT NULL,
+    season      INTEGER NOT NULL,
+    kickoff_utc TEXT NOT NULL,
+    date        TEXT NOT NULL,
+    home_id     TEXT NOT NULL REFERENCES teams(team_id),
+    away_id     TEXT NOT NULL REFERENCES teams(team_id),
+    fetched_at  TEXT
+);
+
+-- Gespeicherte Live-Vorhersagen. Nie überschreiben: jede Vorhersage ist mit Cutoff
+-- versioniert, damit die echte Trefferbilanz ehrlich messbar bleibt.
+CREATE TABLE IF NOT EXISTS predictions (
+    prediction_id INTEGER PRIMARY KEY,
+    created_at  TEXT NOT NULL,            -- UTC
+    model       TEXT NOT NULL,            -- z.B. 'dixon-coles xi=0.002 reg=1.0'
+    cutoff_date TEXT NOT NULL,            -- Fit nutzte nur Ergebnisse mit date < cutoff_date
+    understat_match_id INTEGER NOT NULL,
+    league      TEXT NOT NULL,
+    season      INTEGER NOT NULL,
+    kickoff_utc TEXT NOT NULL,
+    date        TEXT NOT NULL,
+    home_id     TEXT NOT NULL,
+    away_id     TEXT NOT NULL,
+    lam_h REAL, lam_a REAL, rho REAL,
+    p_h REAL, p_d REAL, p_a REAL,
+    pred_h INTEGER NOT NULL, pred_a INTEGER NOT NULL, p_pred REAL,
+    matrix      TEXT NOT NULL,            -- JSON, 10x10 Wahrscheinlichkeiten (Heim-Zeilen)
+    UNIQUE (model, understat_match_id, cutoff_date)
+);
+
 CREATE TABLE IF NOT EXISTS squad_value_snapshots (
     snapshot_date TEXT NOT NULL,
     snapshot_ts   TEXT NOT NULL,

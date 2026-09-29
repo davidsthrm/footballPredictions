@@ -1,0 +1,151 @@
+"""Live-Vorhersage des nächsten Spieltags jeder Top-5-Liga.
+
+Ablauf: Daten der laufenden Saison auffrischen -> je Liga nächsten Spieltag aus dem
+Spielplan bestimmen -> Dixon-Coles mit allen Ergebnissen vor dem Cutoff (= heute) fitten
+-> Ergebnismatrix, argmax-Tipp und 1X2 speichern (Tabelle `predictions`) und als JSON
+für das Dashboard exportieren.
+
+Ergebnisse: football-data.co.uk hinkt einige Tage hinterher; Spiele, die dort noch
+fehlen, werden aus Understat ergänzt (dort am selben Tag verfügbar).
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import date, datetime, timezone
+
+import numpy as np
+import pandas as pd
+
+from fussball import config, db
+from fussball.backtest import metrics, walkforward
+from fussball.backtest.run import load_params
+from fussball.models.dixon_coles import DixonColes
+
+MAX_SPAN_DAYS = 4  # ein Spieltag erstreckt sich höchstens über Fr–Di
+EXPORT_FILE = config.REPORT_DIR / "next_matchday.json"
+
+
+def next_matchday(fixtures: pd.DataFrame, today: date) -> pd.DataFrame:
+    """Nächster Spieltag einer Liga: ab dem ersten Spiel am/nach `today` alle folgenden
+    Spiele, solange kein Team doppelt vorkommt und der Spieltag ≤ MAX_SPAN_DAYS dauert."""
+    fx = fixtures[fixtures.date >= today.isoformat()].sort_values(["kickoff_utc", "understat_match_id"])
+    if fx.empty:
+        return fx
+    first = pd.Timestamp(fx.date.iloc[0])
+    seen, keep = set(), []
+    for r in fx.itertuples():
+        if (pd.Timestamp(r.date) - first).days > MAX_SPAN_DAYS or {r.home_id, r.away_id} & seen:
+            break
+        seen |= {r.home_id, r.away_id}
+        keep.append(r.Index)
+    return fx.loc[keep]
+
+
+def live_fit_data(con: sqlite3.Connection) -> pd.DataFrame:
+    """Ergebnisse aus `matches` plus neuere Top-5-Ergebnisse, die nur Understat schon hat."""
+    data = walkforward.load_fit_data(con)
+    last = data.groupby("league").date.max()
+    extra = db.read(con, "SELECT league, season, date, team_id AS home, opponent_id AS away, "
+                         "goals AS hg, goals_against AS ag FROM team_xg "
+                         "WHERE is_home = 1 AND match_id IS NULL")
+    extra["date"] = pd.to_datetime(extra.date)
+    extra = extra[extra.date > extra.league.map(last)]
+    extra["tier"] = extra.league.map(lambda c: config.LEAGUES[c].tier)
+    extra["country"] = extra.league.map(lambda c: config.LEAGUES[c].country)
+    return pd.concat([data, extra.assign(match_id=pd.NA)], ignore_index=True)
+
+
+def refresh(con: sqlite3.Connection, max_age_h: float = 3.0) -> None:
+    """Holt die Dateien der laufenden Saison neu, falls älter als `max_age_h` Stunden."""
+    from fussball import teams
+    from fussball.ingest import football_data, understat
+    season = [config.current_season()]
+    football_data.ingest(con, seasons=season, max_age_h=max_age_h)
+    teams.sync_seed_map(con)
+    understat.ingest(con, seasons=season, max_age_h=max_age_h)
+
+
+def predict(con: sqlite3.Connection, today: date | None = None,
+            leagues: list[str] | None = None) -> pd.DataFrame:
+    today = today or date.today()
+    params = load_params()
+    model_name = f"dixon-coles xi={params['xi']} reg={params['reg']}"
+    cutoff = pd.Timestamp(today)  # Fit nutzt nur Ergebnisse mit date < heute
+    data = live_fit_data(con)
+    fixtures = db.read(con, "SELECT * FROM fixtures")
+    names = dict(con.execute("SELECT team_id, name FROM teams").fetchall())
+    created = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    rows = []
+    for league in leagues or config.TOP_LEAGUES:
+        md = next_matchday(fixtures[fixtures.league == league], today)
+        if md.empty:
+            continue
+        country = config.LEAGUES[league].country
+        model = DixonColes(xi=params["xi"], reg=params["reg"]).fit(data[data.country == country], cutoff)
+        for f in md.itertuples():
+            lam, mu = model.rates(f.home_id, f.away_id)
+            m = model.predict_matrix(f.home_id, f.away_id)
+            ph, pd_, pa = metrics.outcome_probs(m)
+            i, j = np.unravel_index(np.argmax(m), m.shape)
+            rows.append({
+                "created_at": created, "model": model_name, "cutoff_date": today.isoformat(),
+                "understat_match_id": f.understat_match_id, "league": league, "season": f.season,
+                "kickoff_utc": f.kickoff_utc, "date": f.date, "home_id": f.home_id, "away_id": f.away_id,
+                "lam_h": lam, "lam_a": mu, "rho": model.params_["rho"],
+                "p_h": ph, "p_d": pd_, "p_a": pa, "pred_h": int(i), "pred_a": int(j),
+                "p_pred": float(m[i, j]), "matrix": json.dumps(np.round(m, 6).tolist()),
+                "unknown_team": not {f.home_id, f.away_id} <= set(model.params_["attack"]),
+            })
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    db.upsert(con, "predictions", out.drop(columns=["unknown_team"]),
+              key=["model", "understat_match_id", "cutoff_date"])
+    out["home"] = out.home_id.map(names)
+    out["away"] = out.away_id.map(names)
+    export(out, today, params)
+    return out
+
+
+def export(pred: pd.DataFrame, today: date, params: dict) -> None:
+    """JSON für das Dashboard: pro Liga der nächste Spieltag mit Matrix und 1X2."""
+    config.REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "generated_at": pred.created_at.iloc[0], "cutoff_date": today.isoformat(),
+        "model": pred.model.iloc[0], "params": params,
+        "leagues": {
+            lg: {"name": config.LEAGUES[lg].name, "matches": [
+                {k: (json.loads(r["matrix"]) if k == "matrix" else r[k]) for k in (
+                    "understat_match_id", "kickoff_utc", "home", "away", "pred_h", "pred_a", "p_pred",
+                    "p_h", "p_d", "p_a", "lam_h", "lam_a", "matrix", "unknown_team")}
+                for r in g.sort_values("kickoff_utc").to_dict("records")]}
+            for lg, g in pred.groupby("league")},
+    }
+    EXPORT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=1, default=_json_default))
+
+
+def _json_default(o):
+    if isinstance(o, np.integer):
+        return int(o)
+    if isinstance(o, (np.floating, np.bool_)):
+        return o.item()
+    raise TypeError(type(o))
+
+
+def scorecard(con: sqlite3.Connection) -> pd.DataFrame:
+    """Echte Trefferbilanz: je Spiel die letzte Vorhersage vor dem Spieltag gegen das Ergebnis."""
+    p = db.read(con, """
+        SELECT p.*, x.goals AS hg, x.goals_against AS ag FROM predictions p
+        JOIN team_xg x ON x.understat_match_id = p.understat_match_id AND x.is_home = 1
+        WHERE p.cutoff_date <= p.date""")
+    if p.empty:
+        return p
+    p = p.sort_values("cutoff_date").drop_duplicates(["model", "understat_match_id"], keep="last")
+    for k, v in metrics.hits(p.pred_h, p.pred_a, p.hg, p.ag).items():
+        p[k] = v
+    p["logloss"] = [-np.log(max(json.loads(m)[min(h, 9)][min(a, 9)], 1e-12))
+                    for m, h, a in zip(p.matrix, p.hg, p.ag)]
+    return p.drop(columns=["matrix"])

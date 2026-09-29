@@ -130,7 +130,8 @@ def store(con: sqlite3.Connection, matches: pd.DataFrame, odds: pd.DataFrame) ->
 
 
 def ingest(con: sqlite3.Connection, leagues: list[str] | None = None,
-           seasons: list[int] | None = None, fetcher: Fetcher | None = None) -> pd.DataFrame:
+           seasons: list[int] | None = None, fetcher: Fetcher | None = None,
+           max_age_h: float = CURRENT_SEASON_MAX_AGE_H) -> pd.DataFrame:
     fetcher = fetcher or Fetcher("football-data", min_interval=2.0)
     leagues = leagues or list(config.LEAGUES)
     seasons = seasons or config.seasons()
@@ -142,7 +143,7 @@ def ingest(con: sqlite3.Connection, leagues: list[str] | None = None,
             name = f"{code}/{league}.csv"
             path = fetcher.path(name)
             refresh = (season == current and path.exists()
-                       and time.time() - path.stat().st_mtime > CURRENT_SEASON_MAX_AGE_H * 3600)
+                       and time.time() - path.stat().st_mtime > max_age_h * 3600)
             try:
                 raw = fetcher.get(BASE_URL.format(code=code, league=league), name, refresh=refresh)
             except FileNotFoundError:

@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>de.fussball.snapshot</string>
+    <string>de.fussball.daily</string>
     <key>ProgramArguments</key>
     <array>
-        <string>__REPO__/ops/snapshot.sh</string>
+        <string>__REPO__/ops/daily.sh</string>
     </array>
     <!-- täglich 08:00; war der Mac aus/im Ruhezustand, läuft der Job beim Aufwachen nach -->
     <key>StartCalendarInterval</key>

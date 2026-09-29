@@ -18,14 +18,24 @@ uv run fussball ingest clubelo --suggest   # Vorschläge in data_seed/team_name_
 uv run fussball check
 ```
 
-## Täglicher Transfermarkt-Snapshot
+## Nächster Spieltag
+```bash
+uv run fussball predict        # frischt die laufende Saison auf, tippt den nächsten Spieltag
+uv run fussball scorecard      # echte Trefferbilanz der gespeicherten Vorhersagen
+```
+Der Spielplan kommt aus Understat (kein API-Key nötig). Jede Vorhersage wird mit
+Cutoff-Datum in `predictions` gespeichert und nie überschrieben; die Scorecard wertet
+je Spiel die letzte Vorhersage vor dem Spieltag aus. Export fürs Dashboard:
+`data/reports/next_matchday.json`.
+
+## Täglicher Job (Snapshot + Vorhersage)
 Verfügbarkeiten lassen sich nicht nachträglich rekonstruieren, deshalb läuft der
-Snapshot täglich (ca. 100 Requests, ~9 Minuten):
+Transfermarkt-Snapshot täglich (ca. 100 Requests, ~9 Minuten), danach `predict`:
 ```bash
 uv run fussball snapshot transfermarkt     # manuell
 ops/install_launchd.sh                     # als launchd-Job, täglich 08:00
 ```
-Log: `data/logs/snapshot.log`. Bei Blockade (403) bricht der Scraper mit Exit-Code 2 ab.
+Log: `data/logs/daily.log`. Bei Blockade (403) bricht der Scraper mit Exit-Code 2 ab.
 Neue Vereine (Aufsteiger) meldet `fussball check` als ungemappt → in
 `data_seed/team_name_map.csv` ergänzen, dann `uv run fussball teams`.
 

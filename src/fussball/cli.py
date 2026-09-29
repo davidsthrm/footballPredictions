@@ -107,6 +107,43 @@ def cmd_backtest(args) -> int:
                    test_from=args.test_from)
 
 
+def cmd_predict(args) -> int:
+    from datetime import date
+    from fussball import predict
+    con = db.connect()
+    teams.sync_seed_map(con)
+    if not args.no_refresh:
+        predict.refresh(con)
+    today = date.fromisoformat(args.date) if args.date else None
+    out = predict.predict(con, today=today, leagues=_leagues(args.leagues))
+    if out.empty:
+        print("Keine anstehenden Spiele im Spielplan.")
+        return 1
+    for lg, g in out.groupby("league", sort=False):
+        print(f"\n{config.LEAGUES[lg].name} – {g.date.min()} bis {g.date.max()}")
+        for r in g.sort_values("kickoff_utc").itertuples():
+            flag = "  (Team ohne Historie!)" if r.unknown_team else ""
+            print(f"  {r.kickoff_utc[5:16]} UTC  {r.home:>22} {r.pred_h}:{r.pred_a} {r.away:<22}"
+                  f"  P(Tipp) {r.p_pred:5.1%}   1/X/2 {r.p_h:4.0%} {r.p_d:4.0%} {r.p_a:4.0%}{flag}")
+    print(f"\n{len(out)} Vorhersagen gespeichert (Modell: {out.model.iloc[0]}, Cutoff {out.cutoff_date.iloc[0]}).")
+    return 0
+
+
+def cmd_scorecard(args) -> int:
+    from fussball import predict
+    sc = predict.scorecard(db.connect())
+    if sc.empty:
+        print("Noch keine ausgewerteten Live-Vorhersagen.")
+        return 0
+    agg = sc.groupby("league").agg(n=("exact", "size"), exact=("exact", "mean"), diff=("diff", "mean"),
+                                   tendency=("tendency", "mean"), logloss=("logloss", "mean"))
+    agg.loc["ALL"] = [len(sc), sc.exact.mean(), sc["diff"].mean(), sc.tendency.mean(), sc.logloss.mean()]
+    for c in ("exact", "diff", "tendency"):
+        agg[c] = (100 * agg[c]).round(1)
+    _print(agg.reset_index())
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="fussball", description=__doc__)
     p.add_argument("-v", "--verbose", action="store_true")
@@ -125,6 +162,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("source", choices=["transfermarkt"])
     s.add_argument("--leagues", help="z.B. D1,E0 (Default: Top 5)")
     s.set_defaults(func=cmd_snapshot)
+
+    s = sub.add_parser("predict", help="Nächsten Spieltag vorhersagen und speichern")
+    s.add_argument("--leagues", help="z.B. D1,E0 (Default: Top 5)")
+    s.add_argument("--date", help="Stichtag YYYY-MM-DD (Default: heute)")
+    s.add_argument("--no-refresh", action="store_true", help="laufende Saison nicht neu abrufen")
+    s.set_defaults(func=cmd_predict)
+
+    s = sub.add_parser("scorecard", help="Echte Trefferbilanz der gespeicherten Vorhersagen")
+    s.set_defaults(func=cmd_scorecard)
 
     s = sub.add_parser("teams", help="Seed-Map in DB übernehmen und Snapshots nachmappen")
     s.set_defaults(func=cmd_teams)

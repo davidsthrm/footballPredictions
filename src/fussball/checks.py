@@ -90,7 +90,9 @@ def check_xg_coverage(con) -> list[Result]:
     bad = df[df.missing > 0]
     out = [Result("WARN", "xg", f"{r.league} {config.season_label(r.season)}: {r.missing}/{r.n} Spiele ohne xG")
            for r in bad.itertuples()]
-    unlinked = con.execute("SELECT COUNT(*) FROM team_xg WHERE match_id IS NULL").fetchone()[0]
+    # jüngere Spiele fehlen bei football-data.co.uk oft noch (Update-Verzug) -> erst nach 14 Tagen melden
+    unlinked = con.execute("SELECT COUNT(*) FROM team_xg WHERE match_id IS NULL "
+                           "AND date < date('now', '-14 days')").fetchone()[0]
     if unlinked:
         out.append(Result("WARN", "xg", f"{unlinked // 2} Understat-Spiele ohne Gegenstück in matches"))
     if not len(df):

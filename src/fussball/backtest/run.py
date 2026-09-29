@@ -25,6 +25,11 @@ DEFAULT_PARAMS = {"xi": 0.002, "reg": 1.0}
 PARAMS_FILE = config.REPORT_DIR / "dixon_coles_params.json"
 
 
+def load_params() -> dict:
+    """Getunte Parameter aus data/reports/, sonst Defaults."""
+    return json.loads(PARAMS_FILE.read_text()) if PARAMS_FILE.exists() else dict(DEFAULT_PARAMS)
+
+
 def tune(data: pd.DataFrame, leagues: list[str], seasons: list[int]) -> pd.DataFrame:
     grid = list(itertools.product(XI_GRID, REG_GRID))
     with ProcessPoolExecutor() as ex:
@@ -55,7 +60,7 @@ def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | 
         params = {"xi": float(best.xi), "reg": float(best.reg), "tuned_on": valid}
         PARAMS_FILE.write_text(json.dumps(params, indent=1))
     else:
-        params = json.loads(PARAMS_FILE.read_text()) if PARAMS_FILE.exists() else dict(DEFAULT_PARAMS)
+        params = load_params()
     if xi is not None:
         params["xi"] = xi
     print(f"\nParameter: ξ = {params['xi']}/Tag (Halbwertszeit "
