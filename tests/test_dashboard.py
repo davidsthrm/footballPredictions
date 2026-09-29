@@ -24,6 +24,8 @@ def test_render_contains_matchday_and_no_script(con):
     html = dashboard.render(con, today=date(2026, 10, 9))
     assert "Alpha &lt;FC&gt;" in html and "<FC>" not in html          # HTML-escaped
     assert "<script" not in html                                        # läuft ohne JavaScript
-    assert "Sa 10.10. 15:30" in html                                    # UTC -> Europe/Berlin
-    assert "Muskelfaserriss / Rotsperre" in html and "Ausfälle 0 | 1" in html
+    assert "Sa 10.10. · 15:30" in html                                  # UTC -> Europe/Berlin
+    assert "Muskelfaserriss / Rotsperre" in html and "Ausfälle 0 · 1" in html
+    assert "<details" not in html and 'class="tg tg-a"' in html          # eingeklappt per CSS
+    assert 'type="checkbox" checked' not in html
     assert np.isclose(m.sum(), 1)

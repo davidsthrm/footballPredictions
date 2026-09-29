@@ -58,5 +58,9 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
 - Zeitliche Aufteilung im Backtest: 2014–15 Burn-in, 2016–2018 Validierung (Tuning),
   ab 2019/20 Test. Nie auf Testsaisons tunen.
 - Dashboard ist eine statische HTML-Datei ohne JavaScript (muss in der iOS-Dateien-
-  Vorschau funktionieren); Zahlen im deutschen Format, Zeiten in Europe/Berlin.
+  Vorschau funktionieren); Auf-/Zuklappen per Checkbox+Label (kein <details>), standard-
+  mäßig eingeklappt. Zahlen im deutschen Format, Zeiten in Europe/Berlin.
+- Anzeigenamen deutsch über `data_seed/team_display_names.csv` (Aufsteiger ergänzen);
+  Liga-Farben in `dashboard.THEMES`; Wappen/Logos von Transfermarkt, einmalig gecacht
+  unter data/raw/transfermarkt/{crests,logos}/ und base64 eingebettet.
 - Code und Kommentare auf Deutsch, Bezeichner auf Englisch.

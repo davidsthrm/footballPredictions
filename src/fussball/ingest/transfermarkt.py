@@ -25,6 +25,7 @@ from fussball.http import Fetcher
 log = logging.getLogger(__name__)
 
 BASE = "https://www.transfermarkt.de"
+IMG_BASE = "https://img.a.transfermarkt.technology"
 SOURCE = "transfermarkt"
 LEAGUE_SLUGS = {"GB1": "premier-league", "ES1": "laliga", "IT1": "serie-a", "FR1": "ligue-1", "L1": "bundesliga"}
 MIN_INTERVAL = 5.0
@@ -142,6 +143,26 @@ def parse_club(html: str) -> list[dict]:
     return out
 
 
+def crest_name(tm_club_id: int) -> str:
+    return f"crests/{tm_club_id}.png"
+
+
+def logo_name(league: str) -> str:
+    return f"logos/{league}.png"
+
+
+def fetch_images(clubs: list[Club], league: str, fetcher: Fetcher | None = None) -> int:
+    """Wappen (58x76) und Liga-Logo einmalig laden; Vorhandenes wird nie neu abgerufen."""
+    fetcher = fetcher or Fetcher(SOURCE, min_interval=2.0)
+    code = config.LEAGUES[league].transfermarkt
+    todo = [(f"{IMG_BASE}/logo/homepageWappen150x150/{code.lower()}.png", logo_name(league))]
+    todo += [(f"{IMG_BASE}/wappen/medium/{c.tm_club_id}.png", crest_name(c.tm_club_id)) for c in clubs]
+    new = [(u, n) for u, n in todo if not fetcher.cached(n)]
+    for url, name in new:
+        fetcher.get(url, name)
+    return len(new)
+
+
 def snapshot(con: sqlite3.Connection, leagues: list[str] | None = None,
              fetcher: Fetcher | None = None, now: datetime | None = None) -> pd.DataFrame:
     fetcher = fetcher or Fetcher(SOURCE, min_interval=MIN_INTERVAL)
@@ -154,6 +175,7 @@ def snapshot(con: sqlite3.Connection, leagues: list[str] | None = None,
         name = f"{snap_date}/{code}_startseite.html"
         html = fetcher.get(f"{BASE}/{LEAGUE_SLUGS[code]}/startseite/wettbewerb/{code}", name).decode()
         clubs = parse_league(html)
+        fetch_images(clubs, league)
         base = {"snapshot_date": snap_date, "snapshot_ts": fetcher.fetched_at(name), "league": league}
         db.upsert(con, "squad_value_snapshots", [
             {**base, "tm_club_id": c.tm_club_id, "tm_club_name": c.name, "team_id": tm_map.get(c.name),

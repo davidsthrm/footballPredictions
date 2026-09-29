@@ -92,3 +92,16 @@ def backfill_snapshots(con: sqlite3.Connection) -> None:
                 WHERE s.tm_club_id = availability_snapshots.tm_club_id AND s.team_id IS NOT NULL
                 ORDER BY s.snapshot_date DESC LIMIT 1)
             WHERE team_id IS NULL""")
+
+
+DISPLAY_NAMES = config.SEED_DIR / "team_display_names.csv"
+
+
+def display_names(con: sqlite3.Connection) -> dict[str, str]:
+    """Deutsche Anzeigenamen: kuratierte Seed-Datei > Transfermarkt-Name > football-data-Name."""
+    names = dict(con.execute("SELECT team_id, name FROM teams").fetchall())
+    names.update({tid: n for n, tid in name_map(con, "transfermarkt").items()})
+    if DISPLAY_NAMES.exists():
+        seed = pd.read_csv(DISPLAY_NAMES, dtype=str)
+        names.update(dict(zip(seed.team_id, seed.name_de)))
+    return names
