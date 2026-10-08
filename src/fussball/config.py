@@ -65,7 +65,6 @@ LEAGUES: dict[str, League] = {
     ]
 }
 TOP_LEAGUES = [c for c, lg in LEAGUES.items() if lg.tier == 1]
-SECOND_TIER = {lg.country: c for c, lg in LEAGUES.items() if lg.tier == 2}
 
 
 def season_of(d: date) -> int:
