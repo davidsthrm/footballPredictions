@@ -19,13 +19,18 @@ from fussball.models.blend import EnsembleDixonColes
 from fussball.models.dixon_coles import MAX_GOALS
 
 BURN_IN_SEASONS = 2
+# Understat-Spielstil je Spiel aus Sicht der Heimzeile xh: Deep Completions (Pässe/Läufe bis
+# ~20 m vors Tor) und PPDA (gegnerische Pässe pro eigener Defensivaktion, klein = hohes Pressing)
+STYLE_SQL = ("xh.deep AS deep_h, xh.deep_allowed AS deep_a, "
+             "1.0 * xh.ppda_att / NULLIF(xh.ppda_def, 0) AS ppda_h, "
+             "1.0 * xh.ppda_allowed_att / NULLIF(xh.ppda_allowed_def, 0) AS ppda_a")
 
 
 def load_fit_data(con: sqlite3.Connection) -> pd.DataFrame:
-    """Ergebnisse plus xG (Understat, NaN wo nicht vorhanden) – bewusst nichts anderes."""
-    df = db.read(con, """
+    """Ergebnisse plus xG und Spielstil-Werte (Understat, NaN wo nicht vorhanden) – bewusst nichts anderes."""
+    df = db.read(con, f"""
         SELECT m.match_id, m.league, m.season, m.date, m.home_id AS home, m.away_id AS away,
-               m.fthg AS hg, m.ftag AS ag, xh.xg AS xg_h, xh.xga AS xg_a
+               m.fthg AS hg, m.ftag AS ag, xh.xg AS xg_h, xh.xga AS xg_a, {STYLE_SQL}
         FROM matches m
         LEFT JOIN team_xg xh ON xh.match_id = m.match_id AND xh.is_home = 1""")
     df["date"] = pd.to_datetime(df.date)

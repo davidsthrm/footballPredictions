@@ -18,7 +18,9 @@ def league_data(n_teams=6, rounds=4, seed=0):
                 xh, xa = rng.gamma(2, 0.7), rng.gamma(2, 0.55)
                 rows.append({"match_id": mid, "league": "D1", "season": 2021 + r // 2, "date": day,
                              "home": h, "away": a, "hg": rng.poisson(xh), "ag": rng.poisson(xa),
-                             "xg_h": xh, "xg_a": xa, "tier": 1, "country": "GER"})
+                             "xg_h": xh, "xg_a": xa, "tier": 1, "country": "GER",
+                             "deep_h": rng.poisson(6), "deep_a": rng.poisson(4),
+                             "ppda_h": rng.gamma(4, 3), "ppda_a": rng.gamma(4, 3)})
                 mid += 1
                 day += pd.Timedelta(days=2)
     return pd.DataFrame(rows)
@@ -30,7 +32,7 @@ def test_features_use_only_earlier_matches():
     target = data.match_id.iloc[k]
     before = form.build(data)
     poisoned = data.copy()
-    poisoned.loc[poisoned.index >= k, ["hg", "ag", "xg_h", "xg_a"]] = [9, 9, 9.0, 9.0]
+    poisoned.loc[poisoned.index >= k, ["hg", "ag", "xg_h", "xg_a", "deep_h", "ppda_a"]] = [9, 9, 9.0, 9.0, 99, 99.0]
     after = form.build(poisoned)
     cols = form.FEATURES
     a = before[before.match_id == target].sort_values("team")[cols].reset_index(drop=True)

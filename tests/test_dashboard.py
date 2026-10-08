@@ -24,9 +24,9 @@ def test_render_contains_matchday_and_no_script(con):
     html = dashboard.render(con, today=date(2026, 10, 9))
     assert "Alpha &lt;FC&gt;" in html and "<FC>" not in html          # HTML-escaped
     assert "<script" not in html                                        # läuft ohne JavaScript
-    assert "Sa 10.10. · 15:30" in html                                  # UTC -> Europe/Berlin
-    assert "Muskelfaserriss / Rotsperre" in html and "Ausfälle 0 · 1" in html
-    assert "<details" not in html and 'class="tg tg-a"' in html          # eingeklappt per CSS
+    assert "Samstag, 10. Oktober" in html and ">15:30<" in html         # UTC -> Europe/Berlin
+    assert "Muskelfaserriss / Rotsperre" in html
+    assert "<details" not in html and 'class="tg"' in html               # eingeklappt per CSS
     assert 'type="checkbox" checked' not in html
     assert np.isclose(m.sum(), 1)
 
@@ -45,11 +45,12 @@ def test_views_tabs_and_unique_ids(con):
                                             ("2026-10-11 15:30:00", "gamma", "delta")])]
     db.upsert(con, "predictions", rows, key=["model", "understat_match_id", "cutoff_date"])
     html = dashboard.render(con, today=date(2026, 10, 9))
-    assert 'id="t-liga" class="vt" checked' in html and 'for="t-tag"' in html and 'for="t-top"' in html
-    assert "Samstag, 10. Oktober" in html and "Sonntag, 11. Oktober" in html and "1 Spiel<" in html
-    assert "Sicherste Tendenzen" in html and "2:0" in html
-    assert "Sieg Alpha" in html and "gewinnt zu Hause gegen Beta" in html     # Sieger klar benannt
-    assert 'class="side win"' in html and 'class="side lose"' in html
+    assert 'id="t-spiele" class="vt" checked' in html
+    for tab in ("t-erg", "t-tab", "t-fakt"):
+        assert f'for="{tab}"' in html
+    assert "Samstag, 10. Oktober" in html and "Sonntag, 11. Oktober" in html
+    assert ">2:0<" in html and "Sieg Alpha" in html                       # Tipp und Sieger benannt
+    assert 'class="tm h win"' in html and 'class="matrix"' in html
     ids = re.findall(r'<input[^>]* id="([^"]+)"', html)
     assert len(ids) == len(set(ids))
     assert "Europapokal in" not in html

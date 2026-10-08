@@ -49,7 +49,8 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
 - `models/dixon_coles.py` Dixon-Coles; `models/blend.py` aktuelles Modell: Dixon-Coles auf
   Toren + Dixon-Coles auf xG (eigener, stärkerer Time-Decay), log-λ gewichtet gemischt
 - `features/form.py` point-in-time Team-Features (Ruhetage, xG-/Tor-Form, Chancenverwertung,
-  Heim/Auswärts-Form, Tabelle, Saisonfortschritt); `models/lgbm.py` LightGBM-Korrekturstufe
+  Heim/Auswärts-Form, Tabelle, Saisonfortschritt, Form der Deep Completions und PPDA aus Understat –
+  seit 2026-10-08, Validierung ΔLog-Loss −0,0002, Test −0,0006 bei z −3,8); `models/lgbm.py` LightGBM-Korrekturstufe
   (Poisson, DC-log-λ als Offset), je Saison nur auf Vorsaisons trainiert
 - `ingest/europe.py` Europapokal-Termine (CL/EL/ECL, Transfermarkt-Gesamtspielplan, ~32 Seiten);
   Vereine über TM-ID gemappt (Quelle `transfermarkt_id` in der Seed-Map). Belastungs-Features
@@ -86,6 +87,9 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
 - Dashboard ist eine statische HTML-Datei ohne JavaScript (muss in der iOS-Dateien-
   Vorschau funktionieren); Auf-/Zuklappen per Checkbox+Label (kein <details>), standard-
   mäßig eingeklappt. Zahlen im deutschen Format, Zeiten in Europe/Berlin.
+  Gestaltung bewusst schlicht: Reiter Spiele/Ergebnisse/Tabelle/Fakten, eine Zeile pro Spiel
+  (Anstoß, Teams, Tipp, P(Tendenz)), Details erst nach Antippen; keine Schatten, Verläufe,
+  Badges oder Emojis, Texte sachlich.
 - Anzeigenamen deutsch über `data_seed/team_display_names.csv` (Aufsteiger ergänzen);
   Liga-Farben in `dashboard.THEMES`; Wappen/Logos von Transfermarkt, einmalig gecacht
   unter data/raw/transfermarkt/{crests,logos}/ und base64 eingebettet.
@@ -107,4 +111,9 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
   Test am Saisonbeginn, auf der Validierung nicht → in einem Jahr mit mehr Saisons erneut prüfen).
   Kaderwerte vergangener Saisons auf Transfermarkt sind Werte NACH dem Saisonverlauf →
   immer nur die Vorsaison verwenden.
+  Außerdem (2026-10-08, kein Gewinn auf der Validierung): eigenes Elo aus Ergebnissen (K 15/20/25,
+  mit Tordifferenz, 1.+2. Liga als ein Pool, auch mit Momentum), xG-Elo, Pi-Ratings, Form der
+  Schüsse aufs Tor, xG-Trend (kurze gegen lange Form). Dixon-Coles misst die Stärke schon.
+  ClubElo-API (api.clubelo.com) lieferte am 2026-10-08 durchgehend 502; die neue Website zeigt
+  Verläufe erst ab 2022 → für Validierung 2016–2018 unbrauchbar.
 - Code und Kommentare auf Deutsch, Bezeichner auf Englisch.

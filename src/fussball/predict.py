@@ -53,24 +53,40 @@ def live_fit_data(con: sqlite3.Connection) -> pd.DataFrame:
     data = walkforward.load_fit_data(con)
     last = data.groupby("league").date.max()
     extra = db.read(con, "SELECT league, season, date, team_id AS home, opponent_id AS away, "
-                         "goals AS hg, goals_against AS ag, xg AS xg_h, xga AS xg_a FROM team_xg "
+                         "goals AS hg, goals_against AS ag, xg AS xg_h, xga AS xg_a, "
+                         f"{walkforward.STYLE_SQL} FROM team_xg xh "
                          "WHERE is_home = 1 AND match_id IS NULL")
+    if extra.empty:
+        return data
     extra["date"] = pd.to_datetime(extra.date)
-    extra = extra[extra.date > extra.league.map(last)]
+    newest = pd.to_datetime(extra.league.map(last))
+    extra = extra[newest.isna() | (extra.date > newest)]
     extra["tier"] = extra.league.map(lambda c: config.LEAGUES[c].tier)
     extra["country"] = extra.league.map(lambda c: config.LEAGUES[c].country)
     return pd.concat([data, extra.assign(match_id=pd.NA)], ignore_index=True)
 
 
-def refresh(con: sqlite3.Connection, max_age_h: float = 3.0) -> None:
-    """Holt die Dateien der laufenden Saison neu, falls älter als `max_age_h` Stunden."""
+def refresh(con: sqlite3.Connection, max_age_h: float = 3.0) -> list[str]:
+    """Holt die Dateien der laufenden Saison neu, falls älter als `max_age_h` Stunden.
+
+    Fehler einzelner Quellen (z.B. kein Netz) brechen nicht ab – dann wird mit dem Cache
+    vorhergesagt. Liefert die Liste der fehlgeschlagenen Quellen.
+    """
+    import logging
     from fussball import teams
     from fussball.ingest import football_data, understat
     season = [config.current_season()]
-    football_data.ingest(con, seasons=season, max_age_h=max_age_h)
-    teams.sync_seed_map(con)
-    understat.ingest(con, seasons=season, max_age_h=max_age_h)
-    europe.ingest(con, seasons=season)
+    failed = []
+    for name, step in (("football-data", lambda: football_data.ingest(con, seasons=season, max_age_h=max_age_h)),
+                       ("understat", lambda: (teams.sync_seed_map(con),
+                                              understat.ingest(con, seasons=season, max_age_h=max_age_h))),
+                       ("europapokal", lambda: europe.ingest(con, seasons=season))):
+        try:
+            step()
+        except Exception as e:  # noqa: BLE001 – Netz/Quelle nicht erreichbar: mit Cache weiter
+            logging.getLogger(__name__).warning("Auffrischen %s fehlgeschlagen: %s", name, e)
+            failed.append(name)
+    return failed
 
 
 def lgbm_correct(data: pd.DataFrame, base: pd.DataFrame, corrector: LGBMCorrector,
@@ -128,6 +144,8 @@ def predict(con: sqlite3.Connection, today: date | None = None,
         out = lgbm_correct(data, out, corrector, europe.team_dates(con))
     variants = [(name, out), (name + AVAIL_SUFFIX, with_absences(con, out))]
     stored = [finish(con, v, n, created, today) for n, v in variants]
+    from fussball import season
+    season.project(con, data.dropna(subset=["hg"]), data, params, today)
     result = stored[-1]
     result["home"] = result.home_id.map(names)
     result["away"] = result.away_id.map(names)

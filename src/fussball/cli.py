@@ -138,7 +138,9 @@ def cmd_predict(args) -> int:
     con = db.connect()
     teams.sync_seed_map(con)
     if not args.no_refresh:
-        predict.refresh(con)
+        failed = predict.refresh(con)
+        if failed:
+            print(f"WARNUNG: Auffrischen fehlgeschlagen ({', '.join(failed)}) – Vorhersage mit gecachten Daten.")
     today = date.fromisoformat(args.date) if args.date else None
     out = predict.predict(con, today=today, leagues=_leagues(args.leagues))
     if out.empty:

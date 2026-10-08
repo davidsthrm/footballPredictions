@@ -61,7 +61,15 @@ class Fetcher:
         for attempt in range(retries + 1):
             self._throttle(host)
             log.info("GET %s", url)
-            resp = self.session.get(url, headers=headers, timeout=30)
+            try:
+                resp = self.session.get(url, headers=headers, timeout=30)
+            except (requests.ConnectionError, requests.Timeout) as e:
+                if attempt >= retries:
+                    raise
+                wait = self.min_interval * 2 ** (attempt + 2)
+                log.warning("%s: %s – neuer Versuch in %.0fs", url, type(e).__name__, wait)
+                time.sleep(wait)
+                continue
             self.n_requests += 1
             if resp.status_code == 200:
                 break
