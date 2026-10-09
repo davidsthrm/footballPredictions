@@ -46,7 +46,10 @@ nachgeholt.
 ```bash
 ops/install_launchd.sh          # täglich 08:00
 ops/install_launchd.sh 2 5      # nur Di + Fr
+ops/install_refresh.sh          # Knopf „Jetzt aktualisieren“ im Dashboard (nur am Mac)
 ```
+Ein Lauf braucht rund 3 Minuten Rechenzeit (Nachtraining ~1,5 min auf bis zu 5 Kernen, ~1,2 GB RAM)
+plus einige Minuten höfliches Warten beim Transfermarkt-Snapshot; am Ende kommt eine Mitteilung.
 Log: `data/logs/daily.log`. Transfermarkt: ca. 100 Requests pro Lauf; bei Blockade (403)
 bricht der Scraper mit Exit-Code 2 ab. Verfügbarkeiten lassen sich nicht nachträglich
 rekonstruieren – je seltener der Snapshot, desto gröber die Ausfall-Historie.

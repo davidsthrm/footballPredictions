@@ -120,7 +120,11 @@ def predict(con: sqlite3.Connection, today: date | None = None,
     data = live_fit_data(con)
     fixtures = db.read(con, "SELECT * FROM fixtures")
     names = dict(con.execute("SELECT team_id, name FROM teams").fetchall())
-    created = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    now = datetime.now(timezone.utc)
+    created = now.isoformat(timespec="seconds")
+    # Live-Lauf: angepfiffene Spiele nicht neu tippen – sonst überschreibt ein später Lauf am
+    # Spieltag (verspäteter Job, manueller Refresh) den Tipp von vor dem Anpfiff.
+    started = (lambda ko: pd.Timestamp(ko, tz="UTC") <= now) if today == date.today() else (lambda ko: False)
 
     base = []
     for league in leagues or config.TOP_LEAGUES:
@@ -130,6 +134,8 @@ def predict(con: sqlite3.Connection, today: date | None = None,
         country = config.LEAGUES[league].country
         model = EnsembleDixonColes.from_params(params).fit(data[data.country == country], cutoff)
         for f in md.itertuples():
+            if started(f.kickoff_utc):
+                continue
             lam, mu = model.rates(f.home_id, f.away_id)
             base.append({
                 "understat_match_id": f.understat_match_id, "league": league, "season": f.season,

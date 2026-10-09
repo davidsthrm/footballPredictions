@@ -41,6 +41,9 @@ uv run fussball scorecard                      # echte Trefferbilanz
 uv run fussball dashboard                      # data/dashboard/index.html (+ FUSSBALL_DASHBOARD_COPY)
 ```
 Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Dauerprozess.
+Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tippspiel://refresh` →
+`~/Applications/Tippspiel Refresh.app` (`ops/install_refresh.sh`) → `launchctl kickstart` desselben Jobs.
+`predict` tippt angepfiffene Spiele nicht neu (sonst überschriebe ein später Lauf den Tipp vor Anpfiff).
 
 ## Aufbau
 - `src/fussball/config.py` Ligen, Saisons (Startjahr: 2014 = 2014/15), Pfade
@@ -87,9 +90,12 @@ Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Daue
 - Dashboard ist eine statische HTML-Datei ohne JavaScript (muss in der iOS-Dateien-
   Vorschau funktionieren); Auf-/Zuklappen per Checkbox+Label (kein <details>), standard-
   mäßig eingeklappt. Zahlen im deutschen Format, Zeiten in Europe/Berlin.
-  Gestaltung bewusst schlicht: Reiter Spiele/Ergebnisse/Tabelle/Fakten, eine Zeile pro Spiel
-  (Anstoß, Teams, Tipp, P(Tendenz)), Details erst nach Antippen; keine Schatten, Verläufe,
-  Badges oder Emojis, Texte sachlich.
+  Gestaltung: Titel „Dein Tippspiel-Assistent“, Schrift Plus Jakarta Sans (SIL OFL, variable woff2
+  unter data_seed/fonts/, base64 eingebettet). Erklärtexte nur, wo nötig. Reiter Spiele/Ergebnisse/
+  Tabelle/Fakten mit Liga-Sprungknöpfen; Spiele und Ergebnisse je Liga und Tag gruppiert, eine
+  Zeile pro Spiel, Details (1X2, Vergleichstabelle Heim/Auswärts, Hinweise, Matrix) erst nach
+  Antippen. Emojis sparsam als Icons (Fakten, Detail-Zeilen, Punkte), keine Schatten/Verläufe,
+  Texte sachlich.
 - Anzeigenamen deutsch über `data_seed/team_display_names.csv` (Aufsteiger ergänzen);
   Liga-Farben in `dashboard.THEMES`; Wappen/Logos von Transfermarkt, einmalig gecacht
   unter data/raw/transfermarkt/{crests,logos}/ und base64 eingebettet.

@@ -18,6 +18,7 @@ from fussball import config, db
 
 @dataclass
 class Fact:
+    icon: str
     title: str
     text: str
     ranking: list[tuple[str, str]]   # (team_id oder Spielername, Wert als Text)
@@ -90,30 +91,30 @@ def match_facts(res: pd.DataFrame, players: pd.DataFrame, home: str, away: str, 
         last = h2h.iloc[-1]
         last_txt = (f"{names.get(last.home, last.home)} – {names.get(last.away, last.away)} "
                     f"{int(last.hg)}:{int(last.ag)} ({last.date:%d.%m.%Y})")
-        facts.append(f"Letzte {len(h2h)} Duelle: {w_h}× {nh}, {dr}× Remis, {w_a}× {na}. Zuletzt: {last_txt}.")
+        facts.append(f"⚔️ Letzte {len(h2h)} Duelle: {w_h}× {nh}, {dr}× Remis, {w_a}× {na}. Zuletzt: {last_txt}.")
     else:
-        facts.append("Kein Ligaduell der beiden seit 2014/15.")
+        facts.append("⚔️ Kein Ligaduell der beiden seit 2014/15.")
     for team, name in ((home, nh), (away, na)):
         g = team_games(res, team, d)
         kind, k = streak(g)
         if kind:
-            facts.append(f"{name} ist seit {k} Ligaspielen {kind}.")
+            facts.append(f"{'🔥' if kind != 'sieglos' else '🥶'} {name} ist seit {k} Ligaspielen {kind}.")
         cur = g[g.season == season]
         if len(cur) >= 3 and cur.xgf.notna().all():
             luck = cur.gf.sum() - cur.xgf.sum()
             if luck >= 2.5:
-                facts.append(f"{name} hat diese Saison {_fmt(luck)} Tore mehr erzielt als die xG.")
+                facts.append(f"🍀 {name} hat diese Saison {_fmt(luck)} Tore mehr erzielt als die xG.")
             elif luck <= -2.5:
-                facts.append(f"{name} liegt diese Saison {_fmt(abs(luck))} Tore unter den eigenen xG.")
+                facts.append(f"😬 {name} liegt diese Saison {_fmt(abs(luck))} Tore unter den eigenen xG.")
         top = players[(players.team_id == team) & (players.goals > 0)].sort_values(["goals", "xg"], ascending=False)
         if len(top) and top.goals.iloc[0] >= 3:
             p = top.iloc[0]
-            facts.append(f"Bester Torschütze bei {name}: {p.player} mit {int(p.goals)} Toren ({_fmt(p.xg)} xG).")
+            facts.append(f"👟 Bester Torschütze bei {name}: {p.player} mit {int(p.goals)} Toren ({_fmt(p.xg)} xG).")
     total = lam_h + lam_a
     if context.get("max_total") and abs(total - context["max_total"]) < 1e-9:
-        facts.append(f"Torreichstes Spiel des Spieltags laut Modell ({_fmt(total)} Tore erwartet).")
+        facts.append(f"🥅 Torreichstes Spiel des Spieltags laut Modell ({_fmt(total)} Tore erwartet).")
     elif context.get("min_total") and abs(total - context["min_total"]) < 1e-9:
-        facts.append(f"Torärmstes Spiel des Spieltags laut Modell ({_fmt(total)} Tore erwartet).")
+        facts.append(f"🧱 Torärmstes Spiel des Spieltags laut Modell ({_fmt(total)} Tore erwartet).")
     return facts[:6]
 
 
@@ -138,17 +139,17 @@ def weekly_facts(res: pd.DataFrame, players: pd.DataFrame, backtest: pd.DataFram
     t["gpg"], t["gapg"], t["luck"], t["dluck"] = t.gf / t.n, t.ga / t.n, t.gf - t.xgf, t.xga - t.ga
     if len(t):
         b = t.sort_values("gpg", ascending=False).iloc[0]
-        facts.append(Fact("Meiste Tore", f"{nm(b.team)}: {_fmt(b.gpg)} Tore pro Spiel.",
+        facts.append(Fact("🥅", "Meiste Tore", f"{nm(b.team)}: {_fmt(b.gpg)} Tore pro Spiel.",
                           top(t, "gpg", False, lambda r: f"{_fmt(r.gpg)} Tore/Spiel")))
         b = t.sort_values("gapg").iloc[0]
-        facts.append(Fact("Wenigste Gegentore", f"{nm(b.team)}: {_fmt(b.gapg)} Gegentore pro Spiel.",
+        facts.append(Fact("🧱", "Wenigste Gegentore", f"{nm(b.team)}: {_fmt(b.gapg)} Gegentore pro Spiel.",
                           top(t, "gapg", True, lambda r: f"{_fmt(r.gapg)} Gegentore/Spiel")))
         b = t.sort_values("luck", ascending=False).iloc[0]
-        facts.append(Fact("Mehr Tore als xG", f"{nm(b.team)} liegt {_fmt(b.luck)} Tore über den eigenen xG.", top(t, "luck", False, lambda r: f"+{_fmt(r.luck)} Tore vs. xG")))
+        facts.append(Fact("🍀", "Mehr Tore als xG", f"{nm(b.team)} liegt {_fmt(b.luck)} Tore über den eigenen xG.", top(t, "luck", False, lambda r: f"+{_fmt(r.luck)} Tore vs. xG")))
         b = t.sort_values("luck").iloc[0]
-        facts.append(Fact("Weniger Tore als xG", f"{nm(b.team)} liegt {_fmt(abs(b.luck))} Tore unter den eigenen xG.", top(t, "luck", True, lambda r: f"{_fmt(r.luck)} Tore vs. xG")))
+        facts.append(Fact("😬", "Weniger Tore als xG", f"{nm(b.team)} liegt {_fmt(abs(b.luck))} Tore unter den eigenen xG.", top(t, "luck", True, lambda r: f"{_fmt(r.luck)} Tore vs. xG")))
         b = t.sort_values("dluck", ascending=False).iloc[0]
-        facts.append(Fact("Weniger Gegentore als xG", f"{nm(b.team)} hat {_fmt(b.dluck)} Gegentore weniger "
+        facts.append(Fact("🧤", "Weniger Gegentore als xG", f"{nm(b.team)} hat {_fmt(b.dluck)} Gegentore weniger "
                           f"kassiert, als die Chancen der Gegner erwarten ließen.", top(t, "dluck", False, lambda r: f"{_fmt(r.dluck)} verhinderte Tore")))
     # Serien
     serien = []
@@ -160,18 +161,18 @@ def weekly_facts(res: pd.DataFrame, players: pd.DataFrame, backtest: pd.DataFram
             serien.append((team, k_unb))
     if serien:
         serien.sort(key=lambda x: -x[1])
-        facts.append(Fact("Ungeschlagen", f"{nm(serien[0][0])}: seit {serien[0][1]} Ligaspielen ohne Niederlage.",
+        facts.append(Fact("📈", "Ungeschlagen", f"{nm(serien[0][0])}: seit {serien[0][1]} Ligaspielen ohne Niederlage.",
                           [(tm, f"{k} Spiele") for tm, k in serien[:3]]))
     # Spieler
     pl = players[players.goals > 0]
     if len(pl):
         b = pl.sort_values(["goals", "xg"], ascending=False).iloc[0]
-        facts.append(Fact("Torjäger", f"{b.player} führt mit {int(b.goals)} Toren.",
+        facts.append(Fact("👟", "Torjäger", f"{b.player} führt mit {int(b.goals)} Toren.",
                           [(r.player, f"{int(r.goals)} Tore · {_fmt(r.xg)} xG") for r in
                            pl.sort_values(["goals", "xg"], ascending=False).head(3).itertuples()], "player"))
         pl = pl.assign(over=pl.goals - pl.xg)
         b = pl.sort_values("over", ascending=False).iloc[0]
-        facts.append(Fact("Spieler über xG", f"{b.player}: {_fmt(b.over)} Tore mehr als seine xG.",
+        facts.append(Fact("🎯", "Spieler über xG", f"{b.player}: {_fmt(b.over)} Tore mehr als seine xG.",
                           [(r.player, f"{int(r.goals)} Tore aus {_fmt(r.xg)} xG") for r in
                            pl.sort_values("over", ascending=False).head(3).itertuples()], "player"))
     # Überraschung und Berechenbarkeit (Walk-forward-Vorhersagen)
@@ -183,19 +184,19 @@ def weekly_facts(res: pd.DataFrame, players: pd.DataFrame, backtest: pd.DataFram
             recent = bt[pd.to_datetime(bt.date) >= pd.to_datetime(last_day) - pd.Timedelta(days=4)]
             s = recent.sort_values("p_out").iloc[0]
             outcome = ("Sieg " + nm(s.home)) if s.hg > s.ag else ("Sieg " + nm(s.away)) if s.hg < s.ag else "ein Remis"
-            facts.append(Fact("Überraschung",
+            facts.append(Fact("🤯", "Überraschung",
                               f"{nm(s.home)} – {nm(s.away)} {int(s.hg)}:{int(s.ag)}: Das Modell gab {outcome} "
                               f"nur {s.p_out * 100:.0f} %.",
                               [(f"{nm(r.home)} – {nm(r.away)}", f"{int(r.hg)}:{int(r.ag)} · {r.p_out * 100:.0f} %")
                                for r in recent.sort_values("p_out").head(3).itertuples()], "match"))
             bt["tend"] = np.sign(bt.tip_h - bt.tip_a) == np.sign(bt.hg - bt.ag)
             lg = bt.groupby("league").tend.mean().sort_values(ascending=False)
-            facts.append(Fact("Tendenz je Liga",
+            facts.append(Fact("🔮", "Tendenz je Liga",
                               f"Am besten lag das Modell in der {config.LEAGUES[lg.index[0]].name}: "
                               f"{lg.iloc[0] * 100:.0f} % richtige Tendenzen.",
                               [(config.LEAGUES[k].name, f"{v * 100:.0f} % Tendenz") for k, v in lg.items()], "league"))
     home_rate = cur.groupby("league").apply(lambda g: (g.hg > g.ag).mean(), include_groups=False).sort_values(ascending=False)
-    facts.append(Fact("Heimsiege", f"Die meisten Heimsiege gibt es in der "
+    facts.append(Fact("🏟️", "Heimsiege", f"Die meisten Heimsiege gibt es in der "
                       f"{config.LEAGUES[home_rate.index[0]].name}: {home_rate.iloc[0] * 100:.0f} %.",
                       [(config.LEAGUES[k].name, f"{v * 100:.0f} % Heimsiege") for k, v in home_rate.items()], "league"))
     return facts

@@ -212,35 +212,39 @@ def matrix_table(m: np.ndarray, home: str, away: str, tip: tuple[int, int]) -> s
         cells = "".join(f"<td{' class=mtip' if (i, j) == tip else ''}{_cell_style(sub[i, j], pmax)}>"
                         f"{_cell_label(sub[i, j])}</td>" for j in range(n))
         rows.append(f"<tr><th>{i}</th>{cells}</tr>")
-    return (f'<table class="matrix"><caption>Wahrscheinlichkeit je Ergebnis in % – Zeilen: Tore {escape(home)}, '
-            f'Spalten: Tore {escape(away)}, umrandet: Tipp</caption><thead><tr><th></th>{head}</tr></thead>'
+    return (f'<table class="matrix"><caption>in % · Zeilen {escape(home)}, Spalten {escape(away)}</caption><thead><tr><th></th>{head}</tr></thead>'
             f'<tbody>{"".join(rows)}</tbody></table>')
 
 
-def outcome_line(ph: float, pd_: float, pa: float, pick: int) -> str:
-    """1X2 als schmaler Balken plus Zahlen; der getippte Ausgang ist dunkel."""
-    segs = [(1, ph, "Heim"), (0, pd_, "Remis"), (-1, pa, "Auswärts")]
+def outcome_strip(ph: float, pd_: float, pa: float, pick: int) -> str:
+    """1X2 als drei Felder mit Balken; der getippte Ausgang ist hervorgehoben."""
+    segs = [(1, ph, "🏠 Heimsieg"), (0, pd_, "🤝 Remis"), (-1, pa, "✈️ Auswärtssieg")]
     bar = "".join(f'<i{" class=on" if k == pick else ""} style="width:{100 * p:.1f}%"></i>' for k, p, _ in segs)
-    txt = "".join(f'<span{" class=on" if k == pick else ""}>{lbl} {_pct(p)}</span>' for k, p, lbl in segs)
-    aria = ", ".join(f"{lbl} {_pct(p)}" for _, p, lbl in segs)
-    return f'<div class="odds" role="img" aria-label="{aria}">{bar}</div><p class="oddtxt">{txt}</p>'
+    cells = "".join(f'<div{" class=on" if k == pick else ""}><b>{_pct(p)}</b><span>{lbl}</span></div>'
+                    for k, p, lbl in segs)
+    aria = ", ".join(f"{lbl[2:]} {_pct(p)}" for _, p, lbl in segs)
+    return f'<div class="odds" role="img" aria-label="{aria}">{bar}</div><div class="oddcells">{cells}</div>'
 
 
-def absence_line(ctx: Ctx, team_id: str, team: str, match_date: str) -> str:
-    """Ausfälle eines Teams in einer Zeile; Stammspieler (>= 50 % der Minuten) fett und zuerst."""
+def absence_cell(ctx: Ctx, team_id: str) -> str:
+    """Ausfälle eines Teams als Liste; Stammspieler (>= 50 % der Minuten) fett und zuerst."""
     a = ctx.ab[ctx.ab.team_id == team_id]
     if a.empty:
-        return f"<p class='abs'><span class='lbl'>{escape(team)}:</span> keine Ausfälle gemeldet</p>"
+        return "<span class='muted'>keine gemeldet</span>"
     a = a.assign(key=[(team_id, p) in ctx.key_players for p in a.player]).sort_values(
         ["key", "player"], ascending=[False, True])
     items = []
-    for r in a.itertuples():   # Grund und Dauer nur als Tooltip, damit die Zeile kurz bleibt
-        until = f", bis {pd.Timestamp(r.until):%d.%m.}" if pd.notna(r.until) else ""
-        tag = "b" if r.key else "span"
-        items.append(f"<{tag} title='{escape(r.reason)}{until}'>{escape(r.player)}</{tag}>")
+    for r in a.itertuples():
+        icon = "🟥 " if "rot" in r.reason.lower() else ("🟨 " if "sperre" in r.reason.lower() else "")
+        until = f" · bis {pd.Timestamp(r.until):%d.%m.}" if pd.notna(r.until) else ""
+        name = f"<b>{escape(r.player)}</b>" if r.key else escape(r.player)
+        items.append(f"<li>{icon}{name}<small>{escape(r.reason)}{until}</small></li>")
+    return f"<ul class='abl'>{''.join(items)}</ul>"
+
+
+def _missing_share(ctx: Ctx, team_id: str, match_date: str) -> str:
     imp = ctx.impact.get((match_date, team_id))
-    share = f" <span class='muted'>(fehlt {_pct(imp['lineup'])} der Stammelf)</span>" if imp and imp["lineup"] >= 0.05 else ""
-    return f"<p class='abs'><span class='lbl'>{escape(team)}:</span> {', '.join(items)}{share}</p>"
+    return f"<small class='muted'>fehlt {_pct(imp['lineup'])} der Stammelf</small>" if imp and imp["lineup"] >= 0.05 else ""
 
 
 WEEKDAYS_LONG = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
@@ -279,7 +283,14 @@ def blowout(m: np.ndarray, home: str, away: str) -> str:
     d = g[:, None] - g[None, :]
     ph, pa = m[d >= 3].sum(), m[d <= -3].sum()
     team, p = (home, ph) if ph >= pa else (away, pa)
-    return f" · {escape(team)} mit 3+ Toren Vorsprung {_pct(p)}" if p >= BLOWOUT_MIN else ""
+    return f"💥 Kantersieg (3+ Tore) für {escape(team)}: {_pct(p)}" if p >= BLOWOUT_MIN else ""
+
+
+def chips(items: list[tuple[str, str]]) -> str:
+    """Sprungnavigation zu den Ligen: (Anker, Liga-Code)."""
+    return "<nav class='chips'>" + "".join(
+        f'<a href="#{anchor}"><span class="logo lg-{lg}"></span>{escape(config.LEAGUES[lg].name)}</a>'
+        for anchor, lg in items) + "</nav>"
 
 
 def match_row(r, ctx: Ctx, provisional: bool) -> str:
@@ -291,27 +302,27 @@ def match_row(r, ctx: Ctx, provisional: bool) -> str:
     th, ta, p_tend, p_exact = _tip(r)
     pick, text = verdict(th, ta, home, away)
     hcls, acls = {1: (" win", ""), 0: ("", ""), -1: ("", " win")}[pick]
-    det = [outcome_line(r.p_h, r.p_d, r.p_a, pick),
-           f"<p>Erwartete Tore {_num(r.lam_h)} : {_num(r.lam_a)} · genau {th}:{ta} {_pct(p_exact, 1)}"
-           f"{blowout(m, home, away)}</p>"]
-    if pd.notna(getattr(r, "lam_h0", np.nan)) and (abs(r.lam_h0 - r.lam_h) + abs(r.lam_a0 - r.lam_a)) >= 0.02:
-        det.append(f"<p class='muted'>Ausfälle eingerechnet; ohne wären es {_num(r.lam_h0, 2)} : "
-                   f"{_num(r.lam_a0, 2)} erwartete Tore.</p>")
+    trs = [f"<tr><th>⚽ Erwartete Tore</th><td>{_num(r.lam_h)}</td><td>{_num(r.lam_a)}</td></tr>"]
     if ctx.res is not None:
         d = pd.Timestamp(r.date)
         fh, fa = (views.form_letters(insights.form(ctx.res, t, d)) for t in (r.home_id, r.away_id))
         if fh or fa:
-            det.append(f"<p><span class='lbl'>Form:</span> {escape(home)} {fh} · {escape(away)} {fa}</p>")
-    eu = [n for n in (europe_note(ctx, t, nm, r.date) for t, nm in ((r.home_id, home), (r.away_id, away))) if n]
-    det += [f"<p class='muted'>{n}</p>" for n in eu]
-    det += [absence_line(ctx, r.home_id, home, r.date), absence_line(ctx, r.away_id, away, r.date)]
-    if ctx.res is not None:
-        facts = insights.match_facts(ctx.res, ctx.players, r.home_id, r.away_id, r.date, r.season, ctx.names,
-                                     r.lam_h, r.lam_a, ctx.totals or {})
-        if facts:
-            det.append("<ul class='mfacts'>" + "".join(f"<li>{escape(f)}</li>" for f in facts) + "</ul>")
-    det.append(f'<input type="checkbox" id="x{uid}" class="tg"><label for="x{uid}" class="more">Ergebnismatrix</label>'
-               f'<div class="mx">{matrix_table(m, home, away, (th, ta))}</div>')
+            trs.append(f"<tr><th>📈 Form <small>letzte 5</small></th><td>{fh}</td><td>{fa}</td></tr>")
+    trs.append(f"<tr><th>🚑 Ausfälle</th><td>{absence_cell(ctx, r.home_id)}{_missing_share(ctx, r.home_id, r.date)}</td>"
+               f"<td>{absence_cell(ctx, r.away_id)}{_missing_share(ctx, r.away_id, r.date)}</td></tr>")
+    notes = [f"🎯 Tipp {th}:{ta} trifft exakt mit {_pct(p_exact, 1)}", blowout(m, home, away)]
+    if pd.notna(getattr(r, "lam_h0", np.nan)) and (abs(r.lam_h0 - r.lam_h) + abs(r.lam_a0 - r.lam_a)) >= 0.02:
+        notes.append(f"🩹 Ausfälle eingerechnet (ohne: {_num(r.lam_h0, 2)} : {_num(r.lam_a0, 2)} erwartete Tore)")
+    notes += [f"🌍 {n}" for n in (europe_note(ctx, t, nm, r.date) for t, nm in ((r.home_id, home), (r.away_id, away))) if n]
+    facts = (insights.match_facts(ctx.res, ctx.players, r.home_id, r.away_id, r.date, r.season, ctx.names,
+                                  r.lam_h, r.lam_a, ctx.totals or {}) if ctx.res is not None else [])
+    det = (outcome_strip(r.p_h, r.p_d, r.p_a, pick)
+           + f"<table class='dt'><thead><tr><th></th><th>{crest(r.home_id, ctx.crests, home)}{escape(home)}</th>"
+             f"<th>{crest(r.away_id, ctx.crests, away)}{escape(away)}</th></tr></thead><tbody>{''.join(trs)}</tbody></table>"
+           + "<ul class='notes'>" + "".join(f"<li>{n}</li>" for n in notes if n)
+           + "".join(f"<li>{escape(f)}</li>" for f in facts) + "</ul>"
+           + f'<input type="checkbox" id="x{uid}" class="tg"><label for="x{uid}" class="more">📊 Ergebnismatrix</label>'
+             f'<div class="mx">{matrix_table(m, home, away, (th, ta))}</div>')
     return f"""<div class="match" id="g{uid}"><input type="checkbox" id="m{uid}" class="tg">
 <label for="m{uid}" class="row" aria-label="{escape(home)} gegen {escape(away)}, Tipp {th}:{ta}, {escape(text)}">
 <span class="ko">{time}{'*' if provisional else ''}</span>
@@ -319,7 +330,7 @@ def match_row(r, ctx: Ctx, provisional: bool) -> str:
 <span class="tip">{th}:{ta}</span>
 <span class="tm a{acls}">{crest(r.away_id, ctx.crests, away)}<span class="nm">{escape(away)}</span></span>
 <span class="pr">{_pct(p_tend)}</span></label>
-<div class="det">{''.join(det)}</div></div>"""
+<div class="det">{det}</div></div>"""
 
 
 def provisional_leagues(pred: pd.DataFrame) -> set[str]:
@@ -353,10 +364,9 @@ def ab_test(sc_all: pd.DataFrame, model: str | None) -> str:
         rows.append(f"<tr><td>{label}</td><td>{_pct(d.tip_exact.mean(), 1)}</td>"
                     f"<td>{_pct(d.tip_tendency.mean(), 1)}</td><td>{int(d.points.sum())}</td>"
                     f"<td>{_num(d.logloss.mean(), 3)}</td></tr>")
-    return (f"<h3>Ausfall-Anpassung im Test</h3><table class='stats'><thead><tr><th>{len(common)} Spiele</th>"
+    return (f"<h3>🧪 Ausfall-Anpassung im Test</h3><table class='stats'><thead><tr><th>{len(common)} Spiele</th>"
             f"<th>Exakt</th><th>Tendenz</th><th>Punkte</th><th>Log-Loss</th></tr></thead>"
-            f"<tbody>{''.join(rows)}</tbody></table><p class='muted small'>Die Anpassung ist eine Schätzung "
-            f"(Ausfall-Daten erst seit 29.09.2026); dieser Vergleich zeigt mit der Zeit, ob sie hilft.</p>")
+            f"<tbody>{''.join(rows)}</tbody></table>")
 
 
 def live_summary(sc: pd.DataFrame) -> str:
@@ -364,7 +374,7 @@ def live_summary(sc: pd.DataFrame) -> str:
     if sc.empty:
         return ""
     first = pd.Timestamp(sc.kickoff_utc.min())
-    return (f"<p class='lead'>Live seit {first:%d.%m.}: {len(sc)} Spiele · Tendenz {_pct(sc.tip_tendency.mean())}"
+    return (f"<p class='lead'>🔴 Live seit {first:%d.%m.}: {len(sc)} Spiele · Tendenz {_pct(sc.tip_tendency.mean())}"
             f" · exakt {_pct(sc.tip_exact.mean(), 1)} · {int(sc.points.sum())} Punkte</p>")
 
 
@@ -376,55 +386,76 @@ def model_section(cmp: pd.DataFrame | None, model: str | None) -> str:
     rows = "".join(f"<tr><td>{escape(label.get(role, role))}</td><td>{_num(r['tip_exact_%'])} %</td>"
                    f"<td>{_num(r['tip_tend_%'])} %</td><td>{_num(r['pts_tip'], 2)}</td></tr>"
                    for role, r in cmp.iterrows())
-    return f"""<section class="plain"><h2>Modell</h2>
+    return f"""<section class="plain"><h2>🧠 Modell</h2>
 <p>{escape(describe_model(model))}.</p>
-<p class="muted">Rückblickend getestet auf {_num(a['n'], 0)} Spielen seit 2019/20, jedes Mal nur mit den Daten bis
-zum Vortag. Getippt wird erst der Ausgang, dann das wahrscheinlichste Ergebnis dazu – so verteilen sich die Tipps
-wie echte Ergebnisse statt fast immer 1:1.</p>
-<table class="stats"><thead><tr><th>Variante</th><th>Exakt</th><th>Tendenz</th><th>Punkte/Spiel</th></tr></thead>
+<table class="stats"><caption>Backtest seit 2019/20 · {_num(a['n'], 0)} Spiele</caption><thead><tr><th>Variante</th><th>Exakt</th><th>Tendenz</th><th>Punkte/Spiel</th></tr></thead>
 <tbody>{rows}</tbody></table>
-<p class="muted small">Punkte 4/3/2 (exakt/Tordifferenz/Tendenz). Log-Loss {_num(a['logloss'], 3)},
-RPS {_num(a['rps'], 3)} (Wettmarkt {_num(a['rps_odds'], 3)}).</p></section>"""
+</section>"""
+
+
+FONT_FILE = config.SEED_DIR / "fonts" / "plus-jakarta-sans-latin-wght-normal.woff2"  # SIL OFL 1.1
+
+
+def font_css() -> str:
+    """Plus Jakarta Sans (variable, 200–800) eingebettet – die Datei lädt nichts nach."""
+    if not FONT_FILE.exists():
+        return ""
+    data = base64.b64encode(FONT_FILE.read_bytes()).decode()
+    return ("@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-style:normal;"
+            f"src:url(data:font/woff2;base64,{data}) format('woff2')}}")
 
 
 CSS = """
-:root{--bg:#fbfaf7;--text:#1b1b19;--muted:#77756d;--line:#e5e3dc;--ink:27 27 25;--good:#2e7d4f;--bad:#b4473c;
---title:#2a5d9f;--down:#b4473c}
-@media (prefers-color-scheme:dark){:root{--bg:#131312;--text:#ecebe6;--muted:#99978e;--line:#2b2b28;
---ink:236 235 230;--good:#6fbf8d;--bad:#e07a6e;--title:#79a7e0;--down:#e07a6e}
+:root{--bg:#fbfaf7;--surface:#fff;--text:#1b1b19;--muted:#77756d;--line:#e5e3dc;--ink:27 27 25;--good:#2e7d4f;
+--bad:#b4473c;--title:#2a5d9f;--down:#b4473c;--accent:#1f5fbf}
+@media (prefers-color-scheme:dark){:root{--bg:#131312;--surface:#1c1c1a;--text:#ecebe6;--muted:#99978e;--line:#2e2e2b;
+--ink:236 235 230;--good:#6fbf8d;--bad:#e07a6e;--title:#79a7e0;--down:#e07a6e;--accent:#7fb0ef}
 .crest{filter:drop-shadow(0 0 1px rgba(255,255,255,.6))}}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
 body{margin:0;background:var(--bg);color:var(--text);
-font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+font:15px/1.45 "Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+-webkit-font-smoothing:antialiased}
 main{max-width:680px;margin:0 auto;padding:0 16px 48px}
-h1,h2{font-family:ui-serif,"New York",Georgia,serif;font-weight:600;letter-spacing:-.01em}
+h1,h2{font-weight:800;letter-spacing:-.02em}
 .muted{color:var(--muted)}.small{font-size:12px}
-.lbl{font-weight:600;margin-right:2px}
 a{color:inherit}
 /* Kopf */
-.top{padding:28px 0 6px}
-.top h1{margin:0;font-size:28px;line-height:1.15}
-.top p{margin:4px 0 0;font-size:13px;color:var(--muted)}
+.top{padding:26px 0 4px}
+.top h1{margin:0;font-size:26px;line-height:1.15}
+.top p{margin:4px 0 0;font-size:14px;color:var(--muted)}
+.top p b{color:var(--text);font-weight:600}
+.headrow{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap}
+.refresh{flex:none;font-size:12px;font-weight:600;color:var(--accent);text-decoration:none;
+border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px}
+.refresh:hover{border-color:var(--accent)}
+@media (hover:none),(pointer:coarse),(max-width:560px){.refresh{display:none}}
 /* Reiter */
 .vt,.tg{position:absolute;opacity:0;pointer-events:none;width:0;height:0}
-.tabs{display:flex;gap:20px;position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);
-margin-top:14px}
-.tabs label{padding:10px 0 9px;font-size:14px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;
-margin-bottom:-1px}
+.tabs{display:flex;gap:6px;position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 0;margin-top:12px;
+border-bottom:1px solid var(--line)}
+.tabs label{flex:1;text-align:center;padding:8px 4px;font-size:13px;font-weight:600;border-radius:10px;cursor:pointer;
+border:1px solid var(--line);background:var(--surface);color:var(--text);white-space:nowrap}
 #t-spiele:checked~.tabs label[for=t-spiele],#t-erg:checked~.tabs label[for=t-erg],
-#t-tab:checked~.tabs label[for=t-tab],#t-fakt:checked~.tabs label[for=t-fakt]{color:var(--text);border-color:var(--text)}
+#t-tab:checked~.tabs label[for=t-tab],#t-fakt:checked~.tabs label[for=t-fakt]{background:var(--text);color:var(--bg);
+border-color:var(--text)}
 .view{display:none}
 #t-spiele:checked~.views .v-spiele,#t-erg:checked~.views .v-erg,#t-tab:checked~.views .v-tab,
 #t-fakt:checked~.views .v-fakt{display:block}
-.jump{display:flex;gap:14px;overflow-x:auto;padding:12px 0 0;font-size:13px;scrollbar-width:none}
-.jump::-webkit-scrollbar{display:none}.jump a{flex:none;color:var(--muted);text-decoration:none}
+/* Liga-Navigation */
+.chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0 2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chips a{flex:none;display:inline-flex;align-items:center;gap:7px;padding:6px 12px 6px 6px;border-radius:999px;
+border:1px solid var(--line);background:var(--surface);color:var(--text);text-decoration:none;font-size:13px;
+font-weight:600}
+.chips a::after{content:"↓";color:var(--accent);font-size:12px;margin-left:2px}
+.chips .logo{width:22px;height:22px;border-radius:50%;margin:0}
 .intro{margin:10px 0 0;font-size:12px;color:var(--muted)}
-section{scroll-margin-top:48px}
-.logo{display:inline-block;width:20px;height:20px;border-radius:4px;background:#fff center/84% no-repeat;flex:none;
-vertical-align:-4px;margin-right:8px}
+section{scroll-margin-top:64px}
+.logo{display:inline-block;width:22px;height:22px;border-radius:5px;background:#fff center/84% no-repeat;flex:none;
+vertical-align:-5px;margin-right:8px}
 /* Liga und Spiele */
-.league h2{font-size:21px;margin:30px 0 0;padding-bottom:6px;border-bottom:2px solid color-mix(in srgb,var(--lg) 70%,var(--muted))}
-h3.day{font-size:12px;font-weight:600;color:var(--muted);margin:16px 0 2px;text-transform:none}
+.league h2{font-size:20px;margin:30px 0 0;padding-bottom:6px;border-bottom:2px solid color-mix(in srgb,var(--lg) 70%,var(--muted))}
+h3.day{font-size:12px;font-weight:600;color:var(--muted);margin:16px 0 2px}
 .match{border-bottom:1px solid var(--line)}
 .row{display:grid;grid-template-columns:40px 1fr 44px 1fr 38px;align-items:center;gap:6px;padding:9px 0;cursor:pointer;
 -webkit-user-select:none;user-select:none}
@@ -432,26 +463,40 @@ h3.day{font-size:12px;font-weight:600;color:var(--muted);margin:16px 0 2px;text-
 .tm{display:flex;align-items:center;gap:7px;min-width:0;font-size:14px}
 .tm.h{justify-content:flex-end;text-align:right}
 .nm{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.tm.win{font-weight:650}
+.tm.win{font-weight:700}
 .crest{width:20px;height:20px;background:center/contain no-repeat;flex:none;display:inline-flex;align-items:center;
 justify-content:center}
 .crest.none{border-radius:50%;background:var(--line);color:var(--muted);font-size:10px;font-weight:600}
 .tip{text-align:center;font-weight:700;font-size:16px;font-variant-numeric:tabular-nums}
 .pr{text-align:right;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
-.det{display:none;padding:2px 0 12px 46px;font-size:13px}
-.det p{margin:6px 0}
-.match>.tg:checked+.row{padding-bottom:4px}
+.pr::after{content:" ▾";font-size:9px}
+.match>.tg:checked+.row .pr::after{content:" ▴"}
+/* Details */
+.det{display:none;margin:0 0 14px;padding:12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);
+font-size:13px}
 .match>.tg:checked+.row+.det{display:block}
-.odds{display:flex;height:4px;gap:2px;margin:6px 0 0}
-.odds i{background:rgb(var(--ink) / .15)}.odds i.on{background:var(--text)}
-.oddtxt{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
-.oddtxt .on{color:var(--text);font-weight:600}
-.frm{letter-spacing:.06em;font-size:12px;font-variant-numeric:tabular-nums}
-.frm .fS{color:var(--good);font-weight:700}.frm .fU{color:var(--muted)}.frm .fN{color:var(--bad)}
-.abs .muted{font-size:12px}
-.mfacts{margin:8px 0 0;padding-left:16px;color:var(--muted)}.mfacts li{margin:3px 0}
-.more{display:inline-block;margin-top:6px;font-size:12px;color:var(--muted);text-decoration:underline;
-text-underline-offset:2px;cursor:pointer}
+.odds{display:flex;height:6px;gap:2px;border-radius:3px;overflow:hidden}
+.odds i{background:rgb(var(--ink) / .14)}.odds i.on{background:var(--accent)}
+.oddcells{display:grid;grid-template-columns:repeat(3,1fr);margin-top:6px;font-variant-numeric:tabular-nums}
+.oddcells div{display:flex;flex-direction:column;color:var(--muted);font-size:11px}
+.oddcells div:nth-child(2){text-align:center}.oddcells div:nth-child(3){text-align:right}
+.oddcells b{font-size:16px;color:var(--text);font-weight:600}.oddcells .on b{color:var(--accent);font-weight:700}
+.dt{width:100%;border-collapse:collapse;margin-top:12px;table-layout:fixed}
+.dt th,.dt td{text-align:left;vertical-align:top;padding:7px 4px;border-top:1px solid var(--line)}
+.dt thead th{border-top:0;font-size:12px;font-weight:700;padding-bottom:4px}
+.dt thead th .crest{width:16px;height:16px;vertical-align:-3px;margin-right:5px;display:inline-block}
+.dt tbody th{width:28%;font-weight:600;font-size:12px;color:var(--muted)}
+.dt tbody th small{display:block;font-weight:400}
+.dt td{font-variant-numeric:tabular-nums}
+.abl{list-style:none;margin:0;padding:0}.abl li{margin:0 0 5px;line-height:1.3}
+.abl small{display:block;color:var(--muted);font-size:11px}
+.dt td{overflow-wrap:anywhere;-webkit-hyphens:auto;hyphens:auto}
+.frm{letter-spacing:.08em;font-size:12px;font-weight:600}
+.frm .fS{color:var(--good)}.frm .fU{color:var(--muted)}.frm .fN{color:var(--bad)}
+.notes{list-style:none;margin:10px 0 0;padding:10px 0 0;border-top:1px solid var(--line)}
+.notes li{margin:4px 0;line-height:1.4}
+.more{display:inline-block;margin-top:10px;font-size:12px;font-weight:600;color:var(--accent);cursor:pointer}
+.more::after{content:" ▾"}
 .mx{display:none;margin-top:8px}.det>.tg:checked+.more+.mx{display:block}
 .matrix{border-collapse:separate;border-spacing:2px;font-size:11px;font-variant-numeric:tabular-nums;width:100%;
 max-width:360px;table-layout:fixed}
@@ -460,13 +505,14 @@ max-width:360px;table-layout:fixed}
 .matrix td{text-align:center;padding:6px 0;border-radius:3px}
 .matrix td.mtip{box-shadow:inset 0 0 0 1.5px var(--text);font-weight:700}
 /* Textseiten */
-.plain h2{font-size:21px;margin:28px 0 8px}
+.plain h2{font-size:20px;margin:28px 0 8px}
 h3{font-size:14px;margin:20px 0 6px}
 .lead{font-size:15px;margin:16px 0 4px}
 .stats{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums;margin-top:6px}
 .stats th,.stats td{text-align:right;padding:7px 4px;border-bottom:1px solid var(--line)}
 .stats th:first-child,.stats td:first-child{text-align:left}
 .stats th{font-size:11px;color:var(--muted);font-weight:500}
+.stats caption{caption-side:bottom;text-align:left;font-size:11px;color:var(--muted);padding-top:6px}
 footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--line);color:var(--muted);font-size:11px;line-height:1.5}
 """
 
@@ -521,14 +567,12 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
     leagues = [lg for lg in config.TOP_LEAGUES if (pred.league == lg).any()]
     if leagues:
         prov = provisional_leagues(pred)
-        jump = "".join(f'<a href="#{lg}">{escape(config.LEAGUES[lg].name)}</a>' for lg in leagues)
-        games = (f"<nav class='jump'>{jump}</nav><p class='intro'>Rechts: Wahrscheinlichkeit, dass die "
-                 f"Tendenz stimmt. Antippen für Details.</p>"
+        games = (chips([(lg, lg) for lg in leagues]) + "<p class='intro'>% = Chance, dass die Tendenz stimmt</p>"
                  + "".join(league_section(lg, pred[pred.league == lg], ctx, lg in prov) for lg in leagues))
     else:
         games = "<p class='muted'>Keine Vorhersagen vorhanden – erst <code>fussball predict</code> ausführen.</p>"
     results = views.results_view(played, ctx, live_summary(sc) + ab_test(sc_all, model))
-    fakten = views.facts_view(facts, ctx, today) + model_section(model_comparison(), model)
+    fakten = views.facts_view(facts, ctx) + model_section(model_comparison(), model)
 
     if len(pred):
         days = sorted(pred.kickoff_utc.map(_local_day))
@@ -536,18 +580,19 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
         title = (f"{d0.day}.–{d1.day}. {MONTHS[d1.month - 1]}" if d0.month == d1.month
                  else f"{d0.day}. {MONTHS[d0.month - 1]} – {d1.day}. {MONTHS[d1.month - 1]}")
         created = datetime.fromisoformat(pred.created_at.max()).astimezone(TZ)
-        stamp = f"Stand {WEEKDAYS[created.weekday()]} {created:%d.%m., %H:%M} Uhr"
+        stamp = f"Stand {WEEKDAYS[created.weekday()]} {created:%d.%m., %H:%M}"
         results_until = (pd.Timestamp(pred.cutoff_date.max()) - pd.Timedelta(days=1)).strftime("%d.%m.")
     else:
-        title, stamp, results_until = "Kein Spieltag geplant", "", "–"
+        title, stamp, results_until = "– noch keiner geplant", "", "–"
     return f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark">
-<title>Spieltag {escape(title)}</title><style>{CSS}{views.CSS}{''.join(img_css)}</style></head><body><main>
-<header class="top"><h1>{escape(title)}</h1><p>{stamp}</p></header>
+<title>Dein Tippspiel-Assistent</title><style>{font_css()}{CSS}{views.CSS}{''.join(img_css)}</style></head><body><main>
+<header class="top"><div class="headrow"><h1>Dein Tippspiel-Assistent</h1>
+<a class="refresh" href="tippspiel://refresh" title="Startet den Lauf auf dem Mac (ca. 10 Min.)">↻ Jetzt aktualisieren</a></div><p>⚽ <b>Spieltag {escape(title)}</b>{' · ' + stamp if stamp else ''}</p></header>
 <input type="radio" name="view" id="t-spiele" class="vt" checked><input type="radio" name="view" id="t-erg" class="vt">
 <input type="radio" name="view" id="t-tab" class="vt"><input type="radio" name="view" id="t-fakt" class="vt">
-<div class="tabs"><label for="t-spiele">Spiele</label><label for="t-erg">Ergebnisse</label>
-<label for="t-tab">Tabelle</label><label for="t-fakt">Fakten</label></div>
+<div class="tabs"><label for="t-spiele">📅 Spiele</label><label for="t-erg">✅ Ergebnisse</label>
+<label for="t-tab">🏆 Tabelle</label><label for="t-fakt">💡 Fakten</label></div>
 <div class="views"><div class="view v-spiele">{games}</div><div class="view v-erg">{results}</div>
 <div class="view v-tab">{views.table_view(proj, ctx)}</div><div class="view v-fakt">{fakten}</div></div>
 <footer>Ergebnisse bis {results_until} · Ausfälle vom {pd.Timestamp(snap).strftime('%d.%m.') if snap else '–'} ·
