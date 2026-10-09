@@ -42,6 +42,7 @@ uv run fussball backtest-europe [--tune]       # Walk-forward CL/EL/ECL -> europ
 uv run fussball predict [--no-refresh]         # nächster Spieltag -> predictions + JSON
 uv run fussball scorecard                      # echte Trefferbilanz
 uv run fussball dashboard                      # data/dashboard/index.html (+ FUSSBALL_DASHBOARD_COPY)
+uv run fussball webapp [--setup] [--deploy]    # Web-App data/site -> Cloudflare Pages (Token in .env)
 ```
 Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Dauerprozess.
 Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tippspiel://refresh` →

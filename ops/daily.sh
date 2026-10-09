@@ -21,6 +21,9 @@ step() { echo "$(date '+%H:%M:%S') $1 exit=$2"; }
   $UV run fussball backtest >/dev/null;   step backtest $?   # Modelle mit neuesten Spielen nachtrainieren
   $UV run fussball predict;                ok=$?; step predict $ok
   $UV run fussball dashboard;              step dashboard $?
+  if grep -q '^CLOUDFLARE_API_TOKEN=.' .env 2>/dev/null; then  # Web-App aktualisieren (nur wenn eingerichtet)
+    $UV run fussball webapp --deploy;      step webapp $?
+  fi
 } >> data/logs/daily.log 2>&1
 msg=$([[ $ok == 0 ]] && echo "Neue Tipps sind da – Dashboard neu laden." || echo "Vorhersage fehlgeschlagen, siehe data/logs/daily.log")
 /usr/bin/osascript -e "display notification \"$msg\" with title \"Tippspiel-Assistent\"" 2>/dev/null

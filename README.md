@@ -38,7 +38,15 @@ Ergebnismatrix, Ausfälle), darunter Live-Bilanz und Backtest-Einordnung. Fürs 
 in `.env` `FUSSBALL_DASHBOARD_COPY` auf eine Datei in iCloud Drive setzen, dann liegt
 das Dashboard nach jedem Lauf auch dort (Dateien-App auf dem iPhone).
 
-## Auf dem iPhone wie eine App
+## Web-App (Cloudflare Pages)
+Das Dashboard als Website, auf dem iPhone über Safari › Teilen › „Zum Home-Bildschirm“ wie eine App.
+```bash
+uv run fussball webapp --setup --deploy   # einmalig: Projekt anlegen und hochladen
+uv run fussball webapp --deploy           # danach: läuft im täglichen Job automatisch mit
+```
+Zugangsdaten in `.env` (siehe `.env.example`). Zugangsschutz über Cloudflare Access (Zero Trust).
+
+## Auf dem iPhone ohne Web-App (Kurzbefehl)
 Das Dashboard liegt nach jedem Lauf in iCloud Drive (`FUSSBALL_DASHBOARD_COPY`), daneben
 `Tippspiel-Symbol.png`. Einmalig in der Kurzbefehle-App:
 1. Neuer Kurzbefehl „Tippspiel“: Aktion **Datei abrufen** → iCloud Drive › Fussball › `index.html`

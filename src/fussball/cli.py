@@ -184,6 +184,19 @@ def cmd_dashboard(args) -> int:
     return 0
 
 
+def cmd_webapp(args) -> int:
+    from fussball import webapp
+    if args.setup:
+        print("Projekt:", webapp.create_project())
+    site = webapp.build_site()
+    print("Website:", site)
+    if args.deploy:
+        print("Online:", webapp.deploy(site))
+    if args.access:
+        print("Zugangsschutz:", webapp.setup_access(args.access))
+    return 0
+
+
 def cmd_scorecard(args) -> int:
     from fussball import predict
     sc = predict.scorecard(db.connect())
@@ -240,6 +253,11 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("check", help="Datenqualitäts-Checks")
     s.set_defaults(func=cmd_check)
 
+    s = sub.add_parser("webapp", help="Dashboard als Web-App bauen (data/site) und auf Cloudflare Pages laden")
+    s.add_argument("--setup", action="store_true", help="Pages-Projekt einmalig anlegen")
+    s.add_argument("--deploy", action="store_true", help="hochladen (Zugangsdaten in .env)")
+    s.add_argument("--access", metavar="EMAIL", help="Zugangsschutz (Cloudflare Access) nur für diese E-Mail einrichten")
+    s.set_defaults(func=cmd_webapp)
     s = sub.add_parser("backtest-europe", help="Walk-forward-Backtest für CL, EL und Conference League")
     s.add_argument("--tune", action="store_true", help="Parameter auf 2016–2018 neu wählen")
     s.set_defaults(func=cmd_backtest_europe)
