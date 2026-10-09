@@ -48,6 +48,10 @@ def cmd_ingest(args) -> int:
             n = teams.append_seed(sugg)
             print(f"{n} neue Namensvorschläge in {teams.SEED_MAP} – prüfen und erneut laden.")
         bad = []
+    elif args.source == "understat-matches":
+        from fussball.ingest import understat_matches
+        print(f"{understat_matches.ingest(con, limit=10_000)} Spielberichte geladen")
+        bad = []
     elif args.source == "other-leagues":
         from fussball.ingest import other_leagues
         _print(other_leagues.ingest(con))
@@ -203,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("ingest", help="Daten laden (idempotent, mit Cache)")
-    s.add_argument("source", choices=["football-data", "understat", "clubelo", "europe", "squad-values", "other-leagues"])
+    s.add_argument("source", choices=["football-data", "understat", "clubelo", "europe", "squad-values", "other-leagues", "understat-matches"])
     s.add_argument("--leagues", help="z.B. E0,D1 (Default: alle)")
     s.add_argument("--seasons", help="Startjahre, z.B. 2014-2026 oder 2024,2025")
     s.add_argument("--suggest", action="store_true",

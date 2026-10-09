@@ -12,7 +12,6 @@ eingebettet (base64), die Datei lädt also nichts nach.
 from __future__ import annotations
 
 import base64
-import re
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -138,26 +137,6 @@ def model_comparison() -> pd.DataFrame | None:
     return pd.read_csv(f).set_index("rolle") if f.exists() else None
 
 
-def describe_model(model: str | None) -> str:
-    """'dc+xg xi=0.002 reg=1.0 w_xg=0.5 xi_xg=0.005' -> lesbare Beschreibung."""
-    if not model:
-        return "–"
-    p = dict(kv.split("=") for kv in model.split() if "=" in kv)
-    half = lambda xi: f"{np.log(2) / float(xi) / 30.4:.0f} Monate"
-    if "xi" not in p:
-        return model
-    if "w_xg" not in p:
-        return f"Dixon-Coles auf Toren (Halbwertszeit {half(p['xi'])})"
-    desc = (f"Dixon-Coles aus Toren und xG (xG-Gewicht {float(p['w_xg']):.0%}, Halbwertszeit "
-            f"Tore {half(p['xi'])}, xG {half(p['xi_xg'])})").replace("%", " %")
-    ens = re.search(r"ens(\d+)", model)
-    if ens:
-        desc += f", gemittelt über {ens.group(1)} Parametervarianten"
-    if "+lgbm" in model:
-        desc += " mit LightGBM-Korrektur (Saisonphase, xG-Form, Tabelle, Ruhetage)"
-    return desc
-
-
 # --- Formatierung -------------------------------------------------------------------------
 
 def _num(x: float, digits: int = 1) -> str:
@@ -217,11 +196,12 @@ def matrix_table(m: np.ndarray, home: str, away: str, tip: tuple[int, int]) -> s
 
 
 def outcome_strip(ph: float, pd_: float, pa: float, pick: int) -> str:
-    """1X2 als drei Felder mit Balken; der getippte Ausgang ist hervorgehoben."""
+    """1X2 als drei Felder mit Balken; der wahrscheinlichste Ausgang ist hervorgehoben, der Tipp markiert."""
     segs = [(1, ph, "🏠 Heimsieg"), (0, pd_, "🤝 Remis"), (-1, pa, "✈️ Auswärtssieg")]
-    bar = "".join(f'<i{" class=on" if k == pick else ""} style="width:{100 * p:.1f}%"></i>' for k, p, _ in segs)
-    cells = "".join(f'<div{" class=on" if k == pick else ""}><b>{_pct(p)}</b><span>{lbl}</span></div>'
-                    for k, p, lbl in segs)
+    top = max(segs, key=lambda x: x[1])[0]
+    bar = "".join(f'<i{" class=on" if k == top else ""} style="width:{100 * p:.1f}%"></i>' for k, p, _ in segs)
+    cells = "".join(f'<div{" class=on" if k == top else ""}><b>{_pct(p)}</b><span>{lbl}'
+                    f'{" <em class=tiptag>Tipp</em>" if k == pick else ""}</span></div>' for k, p, lbl in segs)
     aria = ", ".join(f"{lbl[2:]} {_pct(p)}" for _, p, lbl in segs)
     return f'<div class="odds" role="img" aria-label="{aria}">{bar}</div><div class="oddcells">{cells}</div>'
 
@@ -312,6 +292,21 @@ DERBIES = {frozenset(pair): name for pair, name in [
 BANKER_MIN = 0.70   # ab dieser Tendenz-Wahrscheinlichkeit gilt ein Tipp als „Banker“ 🔥
 
 
+def tip_reason(r, pick: int, home: str, away: str) -> str:
+    """Kurzer Hinweis, wenn der getippte Ausgang nicht der wahrscheinlichste ist (Tipp-Strategie)."""
+    probs = {1: r.p_h, 0: r.p_d, -1: r.p_a}
+    top = max(probs, key=probs.get)
+    if top == pick:
+        return ""
+    name = {1: f"Sieg {escape(home)}", 0: "Remis", -1: f"Sieg {escape(away)}"}
+    return f"🎲 Tipp {name[pick]}, obwohl {name[top]} wahrscheinlicher ist (bringt über die Saison mehr Punkte)"
+
+
+def column_head() -> str:
+    return ("<div class='colhead' aria-hidden='true'><span>Anstoß</span><span>Heim</span><span>Tipp</span>"
+            "<span>Gast</span><span title='Wahrscheinlichkeit, dass der getippte Ausgang eintritt'>Tendenz</span></div>")
+
+
 def derby(home_id: str, away_id: str) -> str:
     return DERBIES.get(frozenset((home_id, away_id)), "")
 
@@ -323,8 +318,10 @@ def row_tags(home_id: str, away_id: str) -> str:
 
 
 def prob_cell(p: float) -> str:
+    """Wahrscheinlichkeit der getippten Tendenz; ab BANKER_MIN mit 🔥."""
     banker = p >= BANKER_MIN
-    return (f"<span class='pr{' banker' if banker else ''}'{' title=Banker' if banker else ''}>"
+    tip = "Wahrscheinlichkeit, dass der getippte Ausgang eintritt" + (" – Banker" if banker else "")
+    return (f"<span class='pr{' banker' if banker else ''}' title='{tip}'>"
             f"{'<i>🔥</i>' if banker else ''}{_pct(p)}</span>")
 
 
@@ -357,7 +354,8 @@ def match_row(r, ctx: Ctx, provisional: bool, md: int | None = None) -> str:
             trs.append(f"<tr><th>📈 Form <small>letzte 5</small></th><td>{fh}</td><td>{fa}</td></tr>")
     trs.append(f"<tr><th>🚑 Ausfälle</th><td>{absence_cell(ctx, r.home_id)}{_missing_share(ctx, r.home_id, r.date)}</td>"
                f"<td>{absence_cell(ctx, r.away_id)}{_missing_share(ctx, r.away_id, r.date)}</td></tr>")
-    notes = [f"🎯 Tipp {th}:{ta} trifft exakt mit {_pct(p_exact, 1)}", blowout(m, home, away)]
+    notes = [f"🎯 Tipp {th}:{ta} trifft exakt mit {_pct(p_exact, 1)}", tip_reason(r, pick, home, away),
+             blowout(m, home, away)]
     if pd.notna(getattr(r, "lam_h0", np.nan)) and (abs(r.lam_h0 - r.lam_h) + abs(r.lam_a0 - r.lam_a)) >= 0.02:
         notes.append(f"🩹 Ausfälle eingerechnet (ohne: {_num(r.lam_h0, 2)} : {_num(r.lam_a0, 2)} erwartete Tore)")
     notes += [f"🌍 {n}" for n in (europe_note(ctx, t, nm, r.date) for t, nm in ((r.home_id, home), (r.away_id, away))) if n]
@@ -399,7 +397,7 @@ def league_section(lg: str, g: pd.DataFrame, ctx: Ctx, provisional: bool) -> str
                  + "".join(match_row(r, ctx, provisional, r.md) for r in dg.itertuples()))
     note = "<p class='muted small'>* Anstoßzeit steht noch nicht fest</p>" if provisional else ""
     return (f"<section id='{lg}' class='league' style='--lg:{THEMES[lg].primary}'>"
-            f"<h2><span class='logo lg-{lg}'></span>{escape(name)}</h2>{body}{note}</section>")
+            f"<h2><span class='logo lg-{lg}'></span>{escape(name)}</h2>{column_head()}{body}{note}</section>")
 
 
 def ab_test(sc_all: pd.DataFrame, model: str | None) -> str:
@@ -429,21 +427,6 @@ def live_summary(sc: pd.DataFrame) -> str:
     first = pd.Timestamp(sc.kickoff_utc.min())
     return (f"<p class='lead'>🔴 Live seit {first:%d.%m.}: {len(sc)} Spiele · Tendenz {_pct(sc.tip_tendency.mean())}"
             f" · exakt {_pct(sc.tip_exact.mean(), 1)} · {int(sc.points.sum())} Punkte</p>")
-
-
-def model_section(cmp: pd.DataFrame | None, model: str | None) -> str:
-    if cmp is None or "aktuell" not in cmp.index or "pts_tip" not in cmp.columns:
-        return ""
-    a = cmp.loc["aktuell"]
-    label = {"aktuell": "aktuell (+ LightGBM)"}
-    rows = "".join(f"<tr><td>{escape(label.get(role, role))}</td><td>{_num(r['tip_exact_%'])} %</td>"
-                   f"<td>{_num(r['tip_tend_%'])} %</td><td>{_num(r['pts_tip'], 2)}</td></tr>"
-                   for role, r in cmp.iterrows())
-    return f"""<section class="plain"><h2>🧠 Modell</h2>
-<p>{escape(describe_model(model))}.</p>
-<table class="stats"><caption>Backtest seit 2019/20 · {_num(a['n'], 0)} Spiele</caption><thead><tr><th>Variante</th><th>Exakt</th><th>Tendenz</th><th>Punkte/Spiel</th></tr></thead>
-<tbody>{rows}</tbody></table>
-</section>"""
 
 
 FONT_FILE = config.SEED_DIR / "fonts" / "plus-jakarta-sans-latin-wght-normal.woff2"  # SIL OFL 1.1
@@ -503,7 +486,6 @@ border:1px solid var(--line);background:var(--surface);color:var(--text);text-de
 font-weight:600}
 .chips a::after{content:"↓";color:var(--accent);font-size:12px;margin-left:2px}
 .chips .logo{width:22px;height:22px;border-radius:50%;margin:0}
-.intro{margin:10px 0 0;font-size:12px;color:var(--muted)}
 section{scroll-margin-top:64px}
 .logo{display:inline-block;width:22px;height:22px;border-radius:5px;background:#fff center/84% no-repeat;flex:none;
 vertical-align:-5px;margin-right:8px}
@@ -511,7 +493,7 @@ vertical-align:-5px;margin-right:8px}
 .league h2{font-size:20px;margin:30px 0 0;padding-bottom:6px;border-bottom:2px solid color-mix(in srgb,var(--lg) 70%,var(--muted))}
 h3.day{font-size:12px;font-weight:600;color:var(--muted);margin:16px 0 2px}
 .match{border-bottom:1px solid var(--line)}
-.row{display:grid;grid-template-columns:40px 1fr 44px 1fr 38px;align-items:center;gap:6px;padding:9px 0;cursor:pointer;
+.row,.colhead{display:grid;grid-template-columns:40px 1fr 44px 1fr 56px;align-items:center;gap:6px;padding:9px 0;cursor:pointer;
 -webkit-user-select:none;user-select:none}
 .ko{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .tm{display:flex;align-items:center;gap:7px;min-width:0;font-size:14px}
@@ -522,7 +504,9 @@ h3.day{font-size:12px;font-weight:600;color:var(--muted);margin:16px 0 2px}
 justify-content:center}
 .crest.none{border-radius:50%;background:var(--line);color:var(--muted);font-size:10px;font-weight:600}
 .tip{text-align:center;font-weight:700;font-size:16px;font-variant-numeric:tabular-nums}
-.pr{text-align:right;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pr{text-align:right;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.colhead{padding:8px 0 2px;font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.colhead span:nth-child(2){text-align:right}.colhead span:nth-child(3){text-align:center}.colhead span:last-child{text-align:right}
 .pr::after{content:" ▾";font-size:9px}
 .match>.tg:checked+.row .pr::after{content:" ▴"}
 /* Details */
@@ -535,6 +519,8 @@ font-size:13px}
 .oddcells div{display:flex;flex-direction:column;color:var(--muted);font-size:11px}
 .oddcells div:nth-child(2){text-align:center}.oddcells div:nth-child(3){text-align:right}
 .oddcells b{font-size:16px;color:var(--text);font-weight:600}.oddcells .on b{color:var(--accent);font-weight:700}
+.tiptag{font-style:normal;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-left:4px;
+padding:1px 5px;border-radius:4px;border:1px solid currentColor;color:var(--text)}
 .dt{width:100%;border-collapse:collapse;margin-top:12px;table-layout:fixed}
 .dt th,.dt td{text-align:left;vertical-align:top;padding:7px 4px;border-top:1px solid var(--line)}
 .dt thead th{border-top:0;font-size:12px;font-weight:700;padding-bottom:4px}
@@ -625,12 +611,14 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
     leagues = [lg for lg in config.TOP_LEAGUES if (pred.league == lg).any()]
     if leagues:
         prov = provisional_leagues(pred)
-        games = (chips([(lg, lg) for lg in leagues]) + "<p class='intro'>% = Chance, dass die Tendenz stimmt</p>"
+        games = (chips([(lg, lg) for lg in leagues])
                  + "".join(league_section(lg, pred[pred.league == lg], ctx, lg in prov) for lg in leagues))
     else:
         games = "<p class='muted'>Keine Vorhersagen vorhanden – erst <code>fussball predict</code> ausführen.</p>"
-    results = views.results_view(played, ctx, live_summary(sc) + ab_test(sc_all, model))
-    fakten = views.facts_view(facts, ctx) + model_section(model_comparison(), model) + dashboard_europe.model_note()
+    results = views.results_view(played, ctx, live_summary(sc) + ab_test(sc_all, model),
+                                 views.model_record(played, model_comparison(), season_),
+                                 views.match_stats(con, played))
+    fakten = views.facts_view(facts, ctx)
 
     if len(pred):
         days = sorted(pred.kickoff_utc.map(_local_day))
@@ -645,14 +633,14 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
     return f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark">
 <title>Dein Tippspiel-Assistent</title><style>{font_css()}{CSS}{views.CSS}{dashboard_europe.CSS}{fx.CSS}{''.join(img_css)}</style></head><body><main>
-{fx.eggs_inputs()}{fx.seasonal(today)}
+{fx.eggs_inputs()}{fx.stadium_fx()}{fx.seasonal(today)}
 <header class="top"><div class="headrow">{fx.title()}
-<a class="refresh" href="tippspiel://refresh" title="Startet den Lauf auf dem Mac (ca. 10 Min.)">↻ Jetzt aktualisieren</a></div><p>{fx.ball_label(today)} <b>Spieltag {escape(title)}</b>{' · ' + stamp if stamp else ''}</p>{fx.goal_fx()}</header>
+<a class="refresh" href="tippspiel://refresh" title="Startet den Lauf auf dem Mac (ca. 10 Min.)">↻ Jetzt aktualisieren</a></div><p>{fx.ball_icon(today)} <b>Spieltag {escape(title)}</b>{' · ' + stamp if stamp else ''}</p></header>
 <input type="radio" name="view" id="t-spiele" class="vt" checked><input type="radio" name="view" id="t-eu" class="vt">
 <input type="radio" name="view" id="t-erg" class="vt">
 <input type="radio" name="view" id="t-tab" class="vt"><input type="radio" name="view" id="t-fakt" class="vt">
 <div class="tabs"><label for="t-spiele"><span class="ei">📅 </span>Spiele</label><label for="t-eu"><span class="ei">🌍 </span>Europa</label><label for="t-erg"><span class="ei">✅ </span>Ergebnisse</label>
-<label for="t-tab"><span class="ei">🏆 </span>Tabelle</label><label for="t-fakt"><span class="ei">💡 </span>Fakten</label></div>
+<label for="t-tab"><span class="ei">🏆 </span>Tabellen</label><label for="t-fakt"><span class="ei">💡 </span>Fakten</label></div>
 <div class="views"><div class="view v-spiele">{games}</div><div class="view v-eu">{europa}</div>
 <div class="view v-erg">{results}</div>
 <div class="view v-tab">{views.table_view(proj, ctx)}</div><div class="view v-fakt">{fakten}</div></div>

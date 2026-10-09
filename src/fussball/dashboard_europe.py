@@ -32,8 +32,8 @@ class CompTheme:
 
 THEMES = {
     "CL": CompTheme("#1b2a6b", "#7b2fbe", "#7b4fd6"),
-    "EL": CompTheme("#f37021", "#111111", "#f37021"),
-    "UCOL": CompTheme("#00b85c", "#111111", "#00a854"),
+    "EL": CompTheme("#f37021", "#f37021", "#f37021"),
+    "UCOL": CompTheme("#00b85c", "#00b85c", "#00a854"),
 }
 
 
@@ -95,7 +95,8 @@ def match_row(r, ctx, games: pd.DataFrame) -> str:
     if {r.home_id, r.away_id} & TOP:
         cell = lambda t: d.absence_cell(ctx, t) if t in TOP else "<span class='muted'>keine Daten</span>"
         trs.append(f"<tr><th>🚑 Ausfälle</th><td>{cell(r.home_id)}</td><td>{cell(r.away_id)}</td></tr>")
-    notes = [f"🎯 Tipp {th}:{ta} trifft exakt mit {d._pct(p_exact, 1)}", d.blowout(m, home, away)]
+    notes = [f"🎯 Tipp {th}:{ta} trifft exakt mit {d._pct(p_exact, 1)}", d.tip_reason(r, pick, home, away),
+             d.blowout(m, home, away)]
     notes += [f"🔍 Wenig Daten zu {escape(n)} – Schätzung nahe am Durchschnitt"
               for n, k in ((home, r.home_known), (away, r.away_known)) if not k]
     when = d._day_title(day.date()) + (f", {r.kickoff} Uhr" if isinstance(r.kickoff, str) else "")
@@ -180,13 +181,13 @@ def europe_view(con: sqlite3.Connection, ctx, today: date) -> tuple[str, set[int
                    f"✅ Ergebnisse dieser Saison ({len(pc)} Spiele, Ø {d._num(pc.points.mean(), 2)} Punkte)</label>"
                    f"<div class='old'>{days}</div>")
         sections.append(f"<section id='eu-{c}' class='league comp' style='--c1:{th.c1};--c2:{th.c2};--accent:{th.accent}'>"
-                        f"<h2><span class='logo lg-{c}'></span>{escape(COMPETITIONS[c])}</h2>"
+                        f"<h2><span class='logo lg-{c}'></span>{escape(COMPETITIONS[c])}</h2>{d.column_head()}"
                         f"{body or '<p class=muted>Kein Spiel in den nächsten Tagen.</p>'}"
                         f"{forecast_html(c, forecasts.get(c), ctx)}{res}</section>")
     chips = "<nav class='chips'>" + "".join(
         f'<a href="#eu-{c}" title="{escape(COMPETITIONS[c])}"><span class="logo lg-{c}"></span>{SHORT[c]}</a>'
         for c in comps) + "</nav>"
-    return chips + "<p class='intro'>% = Chance, dass die Tendenz stimmt</p>" + "".join(sections), shown
+    return chips + "".join(sections), shown
 
 
 def tournament_forecasts(con: sqlite3.Connection, games: pd.DataFrame, today: date) -> dict:
@@ -242,28 +243,13 @@ def forecast_html(c: str, fc, ctx) -> str:
         + "</tr>" for r in f.table.itertuples())
     return f"""<input type='checkbox' id='tree-{c}' class='tg'><label for='tree-{c}' class='more tree-btn'>🏆 Turnierbaum &amp; Titelchancen</label>
 <div class='old tree'><input type='checkbox' id='cup-{c}' class='tg cupegg'>
-<p class='muted small'>Prognose aus {tournament.N_SIMS:,} simulierten Turnierverläufen; der Baum zeigt den wahrscheinlichsten Weg
-(erwartete Abschlusstabelle der Ligaphase, in jeder Paarung der Favorit). Prozent = Chance, die Paarung zu gewinnen.</p>
 <div class='bracket'>{''.join(cols)}</div>
 <h3>Titelchancen</h3><table class='ltable chances'><thead><tr><th class='tn'></th><th>Top 8</th><th>AF</th><th>VF</th>
 <th>HF</th><th>Finale</th><th>Sieg</th></tr></thead><tbody>{chance_rows}</tbody></table>
 <input type='checkbox' id='lp-{c}' class='tg'><label for='lp-{c}' class='more'>📋 Ligaphase-Prognose (alle Teams)</label>
 <div class='old'><table class='ltable phase'><thead><tr><th class='pos'>#</th><th class='tn'></th><th>Sp</th><th>Pkt</th>
 <th class='prog'>Erw.</th><th>Top 8</th><th>Play-off</th><th>Aus</th></tr></thead><tbody>{phase_rows}</tbody></table>
-<p class='muted small'>Erw. = erwarteter Platz am Ende der Ligaphase</p></div></div>""".replace("10,000", "10.000")
-
-
-def model_note() -> str:
-    """Eine Zeile Backtest-Ergebnis des Europa-Modells für den Modell-Abschnitt."""
-    if not bt.COMPARISON_FILE.exists():
-        return ""
-    c = pd.read_csv(bt.COMPARISON_FILE)
-    r = c[(c.modell == "Europa-Modell") & (c.teil == "TEST")]
-    if r.empty:
-        return ""
-    r, d = r.iloc[0], _d()
-    return (f"<p class='muted small'>🌍 Europapokal-Modell, Backtest seit 2019/20 · {d._num(r.n, 0)} Spiele: "
-            f"Tendenz {d._num(r['tend_%'])} %, exakt {d._num(r['exact_%'])} %, {d._num(r.pts, 2)} Punkte pro Spiel</p>")
+<p class='muted small'>Erw. = erwarteter Platz am Ende der Ligaphase</p></div></div>"""
 
 
 CSS = """
@@ -294,10 +280,10 @@ background-size:250% 100%;animation:shimmer 3.5s linear infinite}
 .chances .crest,.phase .crest{width:16px;height:16px}
 .chances th:first-child{width:auto}.chances th:nth-child(n+2){width:42px}
 /* Europa: Farbschema je Wettbewerb */
-.comp h2{border-bottom:0;padding-bottom:8px;background:linear-gradient(90deg,var(--c1) 0 70%,var(--c2) 70% 100%) bottom/100% 4px no-repeat}
+.comp h2{border-bottom:0;padding-bottom:8px;background:linear-gradient(90deg,var(--c1),var(--c2)) bottom/100% 3px no-repeat}
 .comp .tip{color:var(--accent)}
 .comp .match>.tg:checked+.row{box-shadow:inset 3px 0 0 var(--accent);padding-left:6px}
 .comp .det{border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
-.comp .row{grid-template-columns:4px 1fr 44px 1fr 38px}
-@media (prefers-color-scheme:dark){.comp h2{background:linear-gradient(90deg,var(--c1) 0 70%,color-mix(in srgb,var(--c2) 60%,#888) 70% 100%) bottom/100% 4px no-repeat}}
+
+@media (prefers-color-scheme:dark){.comp h2{background:linear-gradient(90deg,color-mix(in srgb,var(--c1) 70%,#8aa0ff),var(--c2)) bottom/100% 3px no-repeat}}
 """

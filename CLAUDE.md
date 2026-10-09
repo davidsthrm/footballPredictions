@@ -33,6 +33,7 @@ uv run fussball ingest clubelo [--suggest]     # Elo-Historien der gemappten Ver
 uv run fussball ingest europe [--suggest]      # Europapokal-Termine (Transfermarkt)
 uv run fussball ingest squad-values [--suggest] # Kaderwerte abgeschlossener Saisons (1. + 2. Ligen)
 uv run fussball ingest other-leagues           # 16 weitere Ligen (NED, POR, TUR, AUT, …) für das Europa-Modell
+uv run fussball ingest understat-matches       # Spielberichte (Tore, Spielerwerte) der laufenden Saison
 uv run fussball snapshot transfermarkt         # täglicher Snapshot Verletzungen/Sperren
 uv run fussball teams                          # data_seed/team_name_map.csv -> DB
 uv run fussball check [-v]                     # Datenqualität, Exit 1 bei ERROR
@@ -113,8 +114,13 @@ Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tip
   Zeile pro Spiel, Details (1X2, Vergleichstabelle Heim/Auswärts, Hinweise, Matrix) erst nach
   Antippen. Emojis sparsam als Icons (Fakten, Detail-Zeilen, Punkte), keine Schatten/Verläufe,
   Texte sachlich. Spielinfo je Spiel (Spieltag aus Zahl der Ligaspiele, Derbys in `dashboard.DERBIES`,
-  „Banker“ 🔥 ab 70 % Tendenz). Animationen und Easter Eggs nur per CSS in `dashboard_fx.py`
-  (⚽ im Kopf, Titel 3× antippen, 🏟️ in der Fußzeile, Pokal im Baum; aus bei „Bewegung reduzieren“).
+  „Banker“ 🔥 ab 70 % Tendenz). 1X2-Leiste hebt den wahrscheinlichsten Ausgang hervor, der Tipp ist
+  markiert (weicht er ab, kurzer Hinweis 🎲 zur Tipp-Strategie). Animationen und Easter Eggs nur per CSS
+  in `dashboard_fx.py` (Titel 3× antippen, 🏟️ Flutlicht-Modus in der Fußzeile, Pokal im Baum; aus bei
+  „Bewegung reduzieren“). Ergebnisse aufklappbar: Tore/Vorlagen und „Top-Spieler laut Daten“ aus den
+  Understat-Spielberichten (`ingest/understat_matches.py`, Tabellen match_goals/match_players, kein
+  Modell-Input; offizielle Spieler des Spiels gibt es nicht frei), Schüsse/Ecken/Karten von football-data.
+  Modell-Bilanz (gesamt, je Liga, Saison, Spieltag, Modellvergleich, Europapokal) im Reiter Ergebnisse.
 - Anzeigenamen deutsch über `data_seed/team_display_names.csv` (Aufsteiger ergänzen);
   Liga-Farben in `dashboard.THEMES`; Wappen/Logos von Transfermarkt, einmalig gecacht
   unter data/raw/transfermarkt/{crests,logos}/ und base64 eingebettet.
