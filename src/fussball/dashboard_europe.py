@@ -90,7 +90,7 @@ def match_row(r, ctx, games: pd.DataFrame) -> str:
     hcls, acls = {1: (" win", ""), 0: ("", ""), -1: ("", " win")}[pick]
     day = pd.Timestamp(r.date)
     fh, fa = (views.form_letters(form_all(games, t, day)) for t in (r.home_id, r.away_id))
-    trs = [f"<tr><th>⚽ Erwartete Tore</th><td>{d._num(r.lam_h)}</td><td>{d._num(r.lam_a)}</td></tr>",
+    trs = [f"<tr><th>⚽ Erw. Tore</th><td>{d._num(r.lam_h)}</td><td>{d._num(r.lam_a)}</td></tr>",
            f"<tr><th>📈 Form <small>alle Wettbewerbe</small></th><td>{fh or '–'}</td><td>{fa or '–'}</td></tr>"]
     if {r.home_id, r.away_id} & TOP:
         cell = lambda t: d.absence_cell(ctx, t) if t in TOP else "<span class='muted'>keine Daten</span>"
@@ -99,12 +99,9 @@ def match_row(r, ctx, games: pd.DataFrame) -> str:
              d.blowout(m, home, away)]
     notes += [f"🔍 Wenig Daten zu {escape(n)} – Schätzung nahe am Durchschnitt"
               for n, k in ((home, r.home_known), (away, r.away_known)) if not k]
-    when = d._day_title(day.date()) + (f", {r.kickoff} Uhr" if isinstance(r.kickoff, str) else "")
-    det = (d.game_info(round_label(r.round, r.leg, r.matchday, r.season), COMPETITIONS[r.competition], when,
-                       d.derby(r.home_id, r.away_id))
-           + d.outcome_strip(r.p_h, r.p_d, r.p_a, pick)
-           + f"<table class='dt'><thead><tr><th></th><th>{crest(r.tm_home_id, home)}{escape(home)}</th>"
-             f"<th>{crest(r.tm_away_id, away)}{escape(away)}</th></tr></thead><tbody>{''.join(trs)}</tbody></table>"
+    det = (d.outcome_strip(r.p_h, r.p_d, r.p_a, pick)
+           + f"<table class='dt'><thead><tr><th></th><th>{escape(home)}</th><th>{escape(away)}</th></tr></thead>"
+             f"<tbody>{''.join(trs)}</tbody></table>"
            + "<ul class='notes'>" + "".join(f"<li>{n}</li>" for n in notes if n) + "</ul>"
            + f'<input type="checkbox" id="x{uid}" class="tg"><label for="x{uid}" class="more">📊 Ergebnismatrix</label>'
              f'<div class="mx">{d.matrix_table(m, home, away, (th, ta))}</div>')
@@ -126,7 +123,7 @@ def _result_line(r, ctx) -> str:
     return (f"<li class='res'><span class='tm h{wh}'><span class='nm'>{escape(home)}</span>"
             f"{crest(r.tm_home_id, home)}</span><span class='sc'>{int(r.hg)}:{int(r.ag)}</span>"
             f"<span class='tm a{wa}'>{crest(r.tm_away_id, away)}<span class='nm'>{escape(away)}</span></span>"
-            f"<span class='tp'>{live}{int(r.tip_h)}:{int(r.tip_a)}</span>"
+            f"<span class='tp'>{live}<small class='prl'>Tipp </small>{int(r.tip_h)}:{int(r.tip_a)}</span>"
             f"<span class='pt p{r.points}' title='{r.points} Punkte'>{PT_ICON[r.points]}<small>{r.points}</small></span></li>")
 
 
@@ -168,14 +165,14 @@ def europe_view(con: sqlite3.Connection, ctx, today: date) -> tuple[str, set[int
         th = THEMES[c]
         g = pred[pred.competition == c].assign(day=lambda x: pd.to_datetime(x.date).dt.date).sort_values(["date", "home_name"])
         body = "".join(f"<h3 class='day'>{d._day_title(day)} · {round_label(dg['round'].iloc[0], dg.leg.iloc[0], dg.matchday.iloc[0], int(dg.season.iloc[0]))}</h3>"
-                       + "".join(match_row(r, ctx, games) for r in dg.sort_values(["kickoff", "home_name"]).itertuples())
+                       + "<div class='group'>" + "".join(match_row(r, ctx, games) for r in dg.sort_values(["kickoff", "home_name"]).itertuples()) + "</div>"
                        for day, dg in g.groupby("day", sort=True))
         pc = played[played.competition == c]
         res = ""
         if len(pc):
             pc = pc.assign(day=pd.to_datetime(pc.date).dt.date)
             days = "".join(f"<h3 class='day'>{d._day_title(day)} <span class='muted'>· {int(dg.points.sum())} Punkte</span></h3>"
-                           f"<ul class='reslist'>{''.join(_result_line(r, ctx) for r in dg.sort_values('home_name').itertuples())}</ul>"
+                           f"<ul class='reslist group'>{''.join(_result_line(r, ctx) for r in dg.sort_values('home_name').itertuples())}</ul>"
                            for day, dg in sorted(pc.groupby("day"), key=lambda x: x[0], reverse=True))
             res = (f"<input type='checkbox' id='eures-{c}' class='tg'><label for='eures-{c}' class='more'>"
                    f"✅ Ergebnisse dieser Saison ({len(pc)} Spiele, Ø {d._num(pc.points.mean(), 2)} Punkte)</label>"
@@ -259,15 +256,15 @@ CSS = """
 .bcol{flex:none;width:152px;display:flex;flex-direction:column;scroll-snap-align:start}
 .bcol h4{margin:0 0 6px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .bties{flex:1;display:flex;flex-direction:column;justify-content:space-around;gap:6px}
-.tie{position:relative;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
+.tie{position:relative;border-radius:10px;background:var(--surface);box-shadow:var(--shadow);border:1px solid var(--line)}
 .tie::after{content:"";position:absolute;right:-13px;top:50%;width:12px;border-top:1.5px solid color-mix(in srgb,var(--accent) 45%,var(--line))}
 .bt{display:flex;align-items:center;gap:5px;padding:5px 7px;font-size:11px;color:var(--muted);min-width:0}
 .bt+.bt{border-top:1px solid var(--line)}
 .bt .crest{width:14px;height:14px}.bt .nm{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .bt b{font-weight:600;font-variant-numeric:tabular-nums}
 .bt.w{color:var(--text);font-weight:600}.bt.w b{color:var(--accent)}
-.cup{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;padding:12px 8px;border-radius:12px;
-border:1.5px solid var(--accent);background:var(--surface);cursor:pointer;position:relative;overflow:hidden}
+.cup{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:16px 10px;border-radius:var(--radius);
+border:1.5px solid var(--accent);background:var(--surface);box-shadow:var(--shadow);cursor:pointer;position:relative;overflow:hidden}
 .cup .crest{width:28px;height:28px}.cup small{color:var(--muted)}
 .trophy{font-size:38px;display:inline-block;filter:drop-shadow(0 4px 10px color-mix(in srgb,var(--accent) 50%,transparent))}
 .cup::before{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 35%,rgba(255,255,255,.35) 50%,transparent 65%);
@@ -280,10 +277,10 @@ background-size:250% 100%;animation:shimmer 3.5s linear infinite}
 .chances .crest,.phase .crest{width:16px;height:16px}
 .chances th:first-child{width:auto}.chances th:nth-child(n+2){width:42px}
 /* Europa: Farbschema je Wettbewerb */
-.comp h2{border-bottom:0;padding-bottom:8px;background:linear-gradient(90deg,var(--c1),var(--c2)) bottom/100% 3px no-repeat}
+.comp h2::after{width:56px;background:linear-gradient(90deg,var(--c1),var(--c2))}
 .comp .tip{color:var(--accent)}
-.comp .match>.tg:checked+.row{box-shadow:inset 3px 0 0 var(--accent);padding-left:6px}
-.comp .det{border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 
-@media (prefers-color-scheme:dark){.comp h2{background:linear-gradient(90deg,color-mix(in srgb,var(--c1) 70%,#8aa0ff),var(--c2)) bottom/100% 3px no-repeat}}
+
+
+@media (prefers-color-scheme:dark){.comp h2::after{background:linear-gradient(90deg,color-mix(in srgb,var(--c1) 60%,#8aa0ff),var(--c2))}}
 """

@@ -3,14 +3,17 @@ iOS-Dateien-Vorschau). Mit „Bewegung reduzieren“ im System ist alles aus.
 
 Easter Eggs (Checkbox + Label, :has() für seitenweite Effekte):
 - Titel dreimal antippen: „Dein Tippspiel-Orakel 🔮“
-- 🏟️ in der Fußzeile: Flutlicht-Modus (Rasenstreifen, Flutlicht-Kegel)
+- 🏟️ in der Fußzeile: Flutlicht-Modus (echtes Stadionfoto, Flutlicht zündet)
 - Pokal im Turnierbaum antippen: Pokal wird gestemmt
 - 0:0-Tipps schlafen 💤; um Halloween 🎃 statt ⚽, im Dezember Schnee
 """
 
 from __future__ import annotations
 
+import base64
 from datetime import date
+
+from fussball import config
 
 def ball(today: date) -> str:
     return "🎃" if (today.month, today.day) >= (10, 25) and today.month == 10 else "⚽"
@@ -34,11 +37,19 @@ def ball_icon(today: date) -> str:
     return f"<span class='kickball'>{ball(today)}</span>"
 
 
+STADIUM_PHOTO = config.SEED_DIR / "img" / "stadium_night.jpg"   # gemeinfrei, siehe data_seed/img/QUELLEN.md
+
+
 def stadium_fx() -> str:
-    """Kulisse des Flutlicht-Modus: Himmel, Masten mit Lampenfeldern, Lichtkegel, Dunst, Rasen."""
-    masts = "".join(f"<i class='mast m{i}'><b></b></i><i class='beam b{i}'></i>" for i in range(1, 5))
-    return (f"<div class='stadiumfx' aria-hidden='true'><div class='sky'></div><div class='pitchwrap'><div class='pitch'></div></div><div class='horizon'></div>"
-            f"{masts}<div class='haze'></div></div>")
+    """Kulisse des Flutlicht-Modus: echtes Stadionfoto, abgedunkelt, Flutlicht „zündet“ beim Einschalten."""
+    return "<div class='stadiumfx' aria-hidden='true'><div class='photo'></div><div class='shade'></div></div>"
+
+
+def stadium_css() -> str:
+    if not STADIUM_PHOTO.exists():
+        return ""
+    data = base64.b64encode(STADIUM_PHOTO.read_bytes()).decode()
+    return f".stadiumfx .photo{{background-image:url(data:image/jpeg;base64,{data})}}"
 
 
 def stadium_label() -> str:
@@ -80,7 +91,7 @@ CSS = """
 .chips a:active,.tabs label:active{transform:scale(.95)}
 @media (hover:hover){.chips a:hover{transform:translateY(-2px)}
 .row,.res{transition:background-color .2s}
-.row:hover,.res:hover{background:color-mix(in srgb,var(--accent) 7%,transparent);border-radius:8px}}
+.row:hover,.res:hover{background:color-mix(in srgb,var(--accent) 6%,transparent)}}
 
 /* Details */
 .det{transform-origin:top}
@@ -111,58 +122,26 @@ animation:zz 2.4s ease-out infinite}
 #egg-o1:checked~#egg-o2:checked~#egg-o3:checked~.top .t1{display:none}
 #egg-o1:checked~#egg-o2:checked~#egg-o3:checked~.top .t2{display:inline;color:#b388ff;animation:glow 2s infinite,pop .5s}
 
-/* Easter Egg: Flutlicht – Nachthimmel, vier Masten, Lichtkegel, Dunst, Rasen in Perspektive */
-@keyframes ignite{0%{opacity:0}8%{opacity:1}14%{opacity:.25}22%{opacity:1}30%{opacity:.6}40%,100%{opacity:1}}
-@keyframes beamin{0%,35%{opacity:0}100%{opacity:var(--o,.42)}}
-@keyframes breathe{0%,100%{filter:blur(16px) brightness(1)}50%{filter:blur(18px) brightness(1.12)}}
-@keyframes drift{from{transform:translateX(-6%)}to{transform:translateX(6%)}}
-@keyframes twinkle{0%,100%{opacity:.35}50%{opacity:.9}}
+/* Easter Egg: Flutlicht – echtes Stadionfoto (gemeinfrei), abgedunkelt; das Licht zündet wie echtes Flutlicht */
+@keyframes ignite{0%{filter:brightness(.05) saturate(.6)}12%{filter:brightness(.5) saturate(.9)}18%{filter:brightness(.12) saturate(.7)}
+30%{filter:brightness(.55) saturate(.95)}38%{filter:brightness(.3) saturate(.85)}100%{filter:brightness(.78) saturate(1.05)}}
+@keyframes breathe{0%,100%{transform:scale(1.04)}50%{transform:scale(1.07)}}
 .stadium{cursor:pointer;margin-left:6px;opacity:.55}
-.stadiumfx{display:none;position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+.stadiumfx{display:none;position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;background:#05070b}
 #egg-stadium:checked~.stadiumfx{display:block}
-body:has(#egg-stadium:checked){background:#060a12;--bg:rgba(7,11,19,.78);--surface:rgba(17,24,38,.66);
---line:rgba(255,255,255,.1);--text:#eef2f8;--muted:#9fb0c6;--ink:238 242 248;--accent:#ffd34d;color-scheme:dark}
+.stadiumfx .photo{position:absolute;inset:-3%;background-position:50% 30%;background-size:cover;filter:brightness(.78) saturate(1.05);
+animation:ignite 2.8s ease-out both,breathe 30s ease-in-out 2.8s infinite}
+.stadiumfx .shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(5,7,11,.05) 0%,rgba(5,7,11,.3) 35%,rgba(5,7,11,.72) 75%,rgba(5,7,11,.92) 100%),
+radial-gradient(ellipse 90% 60% at 50% 30%,transparent 40%,rgba(5,7,11,.6) 100%)}
+body:has(#egg-stadium:checked){background:#05070b;--bg:rgba(8,11,17,.7);--surface:rgba(20,25,34,.62);--fill:rgba(255,255,255,.07);
+--line:rgba(255,255,255,.1);--text:#f3f5f9;--muted:#a3adbb;--ink:243 245 249;--accent:#ffd34d;color-scheme:dark}
 body:has(#egg-stadium:checked) main{position:relative;z-index:1}
-body:has(#egg-stadium:checked) .tabs{background:rgba(6,10,18,.72);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
-body:has(#egg-stadium:checked) :is(.det,.chips a,.tabs label,.tie,.cup){-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
-.stadiumfx .sky{position:absolute;inset:0;background:
-radial-gradient(1px 1px at 12% 18%,#fff,transparent),radial-gradient(1px 1px at 33% 9%,#fff,transparent),
-radial-gradient(1px 1px at 58% 14%,#fff,transparent),radial-gradient(1px 1px at 81% 6%,#fff,transparent),
-radial-gradient(1px 1px at 92% 22%,#fff,transparent),radial-gradient(1.5px 1.5px at 24% 28%,#fff,transparent),
-radial-gradient(ellipse 120% 70% at 50% -10%,#1d2b47 0,#0b1220 55%,#060a12 100%);animation:twinkle 5s ease-in-out infinite}
-.stadiumfx .pitchwrap{position:absolute;inset:0;perspective:260px;perspective-origin:50% 10%}
-.stadiumfx .horizon{position:absolute;inset:0;background:linear-gradient(180deg,#060a12 0,#060a12 38%,rgba(6,10,18,.55) 58%,
-rgba(6,10,18,.62) 100%),radial-gradient(ellipse 70% 40% at 50% 100%,transparent,rgba(6,10,18,.5))}
-.stadiumfx .pitch{position:absolute;left:-40%;right:-40%;bottom:-8%;height:80%;transform:rotateX(60deg);transform-origin:50% 100%;
-background:linear-gradient(180deg,#060a12 0,rgba(6,10,18,.85) 12%,transparent 38%),
-radial-gradient(circle at 50% 46%,transparent 0 7.5%,rgba(255,255,255,.55) 7.8% 8.2%,transparent 8.5%),
-linear-gradient(90deg,transparent calc(50% - 1px),rgba(255,255,255,.55) calc(50% - 1px) calc(50% + 1px),transparent calc(50% + 1px)),
-radial-gradient(ellipse 55% 60% at 50% 50%,rgba(255,250,215,.32),transparent 72%),
-repeating-linear-gradient(90deg,#217d38 0 5%,#1b6c2f 5% 10%);filter:saturate(.85) brightness(.7)}
-.stadiumfx .mast{position:absolute;z-index:3;top:5vh;width:74px;height:30px;opacity:0;animation:ignite 1.6s ease-out forwards}
-.stadiumfx .mast b{position:absolute;inset:0;border-radius:3px;background:#2a2f38;
-background-image:radial-gradient(circle,#fffef2 0 2.4px,transparent 3px);background-size:12.3px 10px;
-box-shadow:0 0 18px 6px rgba(255,248,214,.85),0 0 70px 26px rgba(255,244,200,.45),0 0 160px 60px rgba(255,240,190,.18)}
-.stadiumfx .mast::after{content:"";position:absolute;left:50%;top:30px;width:4px;height:42vh;transform:translateX(-50%);
-background:linear-gradient(180deg,#39404c,#141821 70%,transparent)}
-.stadiumfx .m1{left:3vw;transform:rotate(14deg)}.stadiumfx .m2{left:22vw;transform:rotate(6deg);top:2vh;animation-delay:.35s}
-.stadiumfx .m3{right:22vw;transform:rotate(-6deg);top:2vh;animation-delay:.7s}.stadiumfx .m4{right:3vw;transform:rotate(-14deg);animation-delay:1.05s}
-.stadiumfx .beam{position:absolute;z-index:2;top:7vh;width:46vw;height:110vh;transform-origin:50% 0;opacity:0;mix-blend-mode:screen;
-filter:blur(16px);animation:beamin 2.6s ease-out forwards,breathe 7s ease-in-out 2.6s infinite}
-.stadiumfx .beam::before{content:"";position:absolute;inset:0;clip-path:polygon(46% 0,54% 0,100% 100%,0 100%);
-background:linear-gradient(180deg,rgba(255,250,224,.85),rgba(255,248,215,.3) 35%,rgba(255,248,215,.08) 65%,transparent 85%)}
-.stadiumfx .b1{left:calc(3vw - 19vw);transform:rotate(-30deg);--o:.38;animation-delay:.2s,2.6s}
-.stadiumfx .b2{left:calc(22vw - 19vw);transform:rotate(-12deg);--o:.3;animation-delay:.55s,3s}
-.stadiumfx .b3{right:calc(22vw - 19vw);transform:rotate(12deg);--o:.3;animation-delay:.9s,3.4s}
-.stadiumfx .b4{right:calc(3vw - 19vw);transform:rotate(30deg);--o:.38;animation-delay:1.25s,3.8s}
-.stadiumfx .haze{position:absolute;inset:-10%;background:radial-gradient(ellipse 40% 25% at 30% 40%,rgba(255,255,255,.06),transparent 70%),
-radial-gradient(ellipse 45% 30% at 70% 55%,rgba(255,255,255,.05),transparent 70%);animation:drift 24s ease-in-out infinite alternate}
+body:has(#egg-stadium:checked) :is(.group,.chips a,.tabs,.tie,.cup,.kpis div,.fact,.stats,.ltable){-webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2)}
 
 /* Saison */
 .snow{position:fixed;inset:0;pointer-events:none;z-index:30}
 .snow i{position:absolute;left:var(--x);top:0;color:#cfe3ff;font-style:normal;opacity:.8;animation:snow var(--t) linear var(--d) infinite}
 
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}
-.stadiumfx .mast{opacity:1}.stadiumfx .beam{opacity:.35}
 .snow{display:none!important}.title .t1{text-shadow:0 0 10px rgba(124,77,255,.35)}}
 """

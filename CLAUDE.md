@@ -109,7 +109,13 @@ Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tip
   Vorschau funktionieren); Auf-/Zuklappen per Checkbox+Label (kein <details>), standard-
   mäßig eingeklappt. Zahlen im deutschen Format, Zeiten in Europe/Berlin.
   Gestaltung: Titel „Dein Tippspiel-Assistent“, Schrift Plus Jakarta Sans (SIL OFL, variable woff2
-  unter data_seed/fonts/, base64 eingebettet). Erklärtexte nur, wo nötig. Reiter Spiele/Ergebnisse/
+  unter data_seed/fonts/, base64 eingebettet). Erklärtexte nur, wo nötig. Look wie eine native App:
+  iOS-Systemgrau/echtes Schwarz, Spieltage als gruppierte Karten, Tipp als Pille; Reiter am Mac als
+  Segmentschalter oben, am Handy (≤ 700 px) als Tab-Leiste unten mit Linien-Icons; Spielzeilen am
+  Handy zweizeilig (Teams + Tipp, darunter Anstoß und „Tendenz x %“). Details ohne Datum/Uhrzeit
+  (stehen im Tageskopf) und ohne Wappen. Flutlicht-Modus = echtes, gemeinfreies Stadionfoto
+  (data_seed/img/, Quellen in QUELLEN.md). App-Symbol data_seed/img/app_icon.png (Home-Bildschirm,
+  liegt nach jedem Lauf auch neben der iCloud-Kopie). Reiter Spiele/Ergebnisse/
   Tabelle/Fakten mit Liga-Sprungknöpfen; Spiele und Ergebnisse je Liga und Tag gruppiert, eine
   Zeile pro Spiel, Details (1X2, Vergleichstabelle Heim/Auswärts, Hinweise, Matrix) erst nach
   Antippen. Emojis sparsam als Icons (Fakten, Detail-Zeilen, Punkte), keine Schatten/Verläufe,

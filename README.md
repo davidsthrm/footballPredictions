@@ -38,6 +38,16 @@ Ergebnismatrix, Ausfälle), darunter Live-Bilanz und Backtest-Einordnung. Fürs 
 in `.env` `FUSSBALL_DASHBOARD_COPY` auf eine Datei in iCloud Drive setzen, dann liegt
 das Dashboard nach jedem Lauf auch dort (Dateien-App auf dem iPhone).
 
+## Auf dem iPhone wie eine App
+Das Dashboard liegt nach jedem Lauf in iCloud Drive (`FUSSBALL_DASHBOARD_COPY`), daneben
+`Tippspiel-Symbol.png`. Einmalig in der Kurzbefehle-App:
+1. Neuer Kurzbefehl „Tippspiel“: Aktion **Datei abrufen** → iCloud Drive › Fussball › `index.html`
+   (Option „Ordnerauswahl anzeigen“ aus), danach Aktion **Übersicht**.
+2. `Tippspiel-Symbol.png` in der Dateien-App öffnen → Teilen → „Bild sichern“ (landet in Fotos).
+3. Kurzbefehl → Teilen → **Zum Home-Bildschirm** → Symbol antippen → Foto wählen → „Hinzufügen“.
+Der Kurzbefehl holt bei jedem Öffnen die aktuelle Datei aus iCloud (die Dateien-App zeigt dagegen
+manchmal noch eine zwischengespeicherte ältere Kopie).
+
 ## Geplanter Lauf (Snapshot + Vorhersage + Dashboard)
 Ablauf: Snapshot → Nachtraining (`backtest`, ~30 s) → Vorhersage → Dashboard.
 Nichts läuft dauerhaft: launchd startet `ops/daily.sh` zu festen Zeitpunkten, das Skript

@@ -49,7 +49,7 @@ def _points(p: pd.DataFrame) -> pd.DataFrame:
     return p
 
 
-PT_ICON = {4: "🎯", 3: "✅", 2: "✅", 0: "–"}
+PT_ICON = {4: "🎯", 3: "✅", 2: "✌️", 0: "–"}
 
 
 def match_stats(con, played: pd.DataFrame) -> dict[tuple, str]:
@@ -110,7 +110,7 @@ def _result_line(r, ctx, stats: dict | None = None) -> str:
     line = (f"<span class='tm h{wh}'><span class='nm'>{escape(home)}</span>"
             f"{d.crest(r.home_id, ctx.crests, home)}</span><span class='sc'>{int(r.hg)}:{int(r.ag)}</span>"
             f"<span class='tm a{wa}'>{d.crest(r.away_id, ctx.crests, away)}<span class='nm'>{escape(away)}"
-            f"</span></span><span class='tp'>{live}{int(r.tip_h)}:{int(r.tip_a)}</span>"
+            f"</span></span><span class='tp'>{live}<small class='prl'>Tipp </small>{int(r.tip_h)}:{int(r.tip_a)}</span>"
             f"<span class='pt p{r.pts}' title='{r.pts} Punkte'>{PT_ICON[r.pts]}<small>{r.pts}</small></span>")
     det = (stats or {}).get((str(r.date)[:10], r.home_id, r.away_id))
     if not det:
@@ -143,7 +143,7 @@ def results_view(played: pd.DataFrame, ctx, live_html: str = "", record_html: st
         recent, older = [], []
         for day, g in sorted(lp.groupby("day"), key=lambda x: x[0], reverse=True):
             block = (f"<h3 class='day'>{d._day_title(day)} <span class='muted'>· {int(g.pts.sum())} Punkte</span></h3>"
-                     f"<ul class='reslist'>{''.join(_result_line(r, ctx, stats) for r in g.sort_values('home_id').itertuples())}</ul>")
+                     f"<ul class='reslist group'>{''.join(_result_line(r, ctx, stats) for r in g.sort_values('home_id').itertuples())}</ul>")
             (recent if (newest - day).days < RECENT_DAYS else older).append(block)
         more = (f"<input type='checkbox' id='old-{lg}' class='tg'><label for='old-{lg}' class='more'>Ältere Spieltage</label>"
                 f"<div class='old'>{''.join(older)}</div>") if older else ""
@@ -277,7 +277,7 @@ def table_view(proj: pd.DataFrame, ctx) -> str:
         po = " oder Relegation" if rules.playoff else ""
         out.append(f"""<section id="tab-{lg}" class="league" style="--lg:{d.THEMES[lg].primary}">
 <h2><span class="logo lg-{lg}"></span>{escape(config.LEAGUES[lg].name)}</h2>
-<table class="ltable"><thead><tr><th class="pos">#</th><th class="tn"></th><th>Sp</th><th>TD</th>
+<table class="ltable league-table"><thead><tr><th class="pos">#</th><th class="tn"></th><th>Sp</th><th>TD</th>
 <th>Pkt</th><th class="prog">Erw.</th><th>Meister</th><th>CL</th><th>Abstieg</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table>
 <p class="muted small">Erw. = erwartete Punkte am Saisonende</p></section>""")
@@ -307,44 +307,54 @@ def facts_view(facts: list[Fact], ctx) -> str:
 
 CSS = """
 /* Ergebnisse */
-.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 6px}
-.kpis div{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--surface)}
-.kpis strong{display:block;font-size:22px;font-weight:800;letter-spacing:-.02em}.kpis span{font-size:11px;color:var(--muted)}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0 8px}
+.kpis div{border-radius:var(--radius);padding:14px;background:var(--surface);box-shadow:var(--shadow)}
+.kpis strong{display:block;font-size:26px;font-weight:800;letter-spacing:-.03em;line-height:1.1}
+.kpis span{font-size:11px;font-weight:600;color:var(--muted)}
 .reslist{list-style:none;padding:0;margin:0}
+.rdet{margin:0 10px 12px}
 .resw>.res{cursor:pointer}.resw>.tg:checked+.res+.rdet{display:block}
 .rdet .dt{margin-top:0}.star{margin:10px 0 0}
-.res{display:grid;grid-template-columns:1fr 40px 1fr 32px 34px;align-items:center;gap:6px;padding:7px 0;
-border-bottom:1px solid var(--line);font-size:13px}
-.res .tm{font-size:13px}
-.sc{text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
+.res{display:grid;grid-template-columns:1fr 48px 1fr 34px 36px;align-items:center;gap:8px;padding:11px 14px;font-size:14px}
+.res .tm{font-size:14px}.res .crest{width:20px;height:20px}
+@media (max-width:560px){.res{grid-template-columns:1fr 50px 1fr;grid-template-areas:"h s a" "q q z";row-gap:4px;padding:10px 12px}
+.res .tm.h{grid-area:h}.res .sc{grid-area:s}.res .tm.a{grid-area:a}.res .tp{grid-area:q;text-align:left}.res .pt{grid-area:z}
+.res .tm{font-size:13px}}
+.sc{justify-self:center;min-width:44px;text-align:center;font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;
+background:var(--fill);border-radius:8px;padding:2px 6px}
 .tp{text-align:right;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
 .pt{text-align:right;font-size:12px;white-space:nowrap}.pt small{font-size:10px;color:var(--muted);margin-left:2px}
 .pt.p4 small{color:var(--good);font-weight:700}.pt.p0{opacity:.55}
 .live{color:var(--title);margin-right:3px;font-size:9px;vertical-align:1px}
 .old{display:none}.tg:checked+.more+.old{display:block}
 /* Tabelle */
-.ltable{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;font-variant-numeric:tabular-nums;margin-top:6px}
-.ltable th{font-size:10px;color:var(--muted);font-weight:500;padding:6px 2px;text-align:center}
-.ltable td{padding:5px 2px;text-align:center;border-top:1px solid var(--line)}
+.ltable{table-layout:fixed;font-size:12px;margin-top:8px}
+.ltable th{font-size:10px;color:var(--muted);font-weight:700;padding:9px 2px 7px;text-align:center;text-transform:uppercase;letter-spacing:.04em}
+.ltable td{padding:7px 2px;text-align:center;border-top:1px solid var(--line)}
+.ltable td:first-child,.ltable th:first-child{padding-left:10px}
 .ltable .pos{width:24px;color:var(--muted)}
 .ltable td.tn{text-align:left;display:flex;align-items:center;gap:6px;min-width:0}
 .ltable td.tn span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.ltable .tn .crest{width:16px;height:16px}
+.ltable .tn .crest{width:18px;height:18px}
 .ltable th:nth-child(3),.ltable th:nth-child(4){width:26px}.ltable th:nth-child(5){width:28px}
 .ltable th.prog{width:30px}.ltable th:nth-child(n+7){width:44px}
 .ltable td.pts{font-weight:700}.ltable td.prog{color:var(--muted)}
+@media (max-width:560px){.league-table th:nth-child(4),.league-table td:nth-child(4){display:none}
+.league-table th{font-size:9px;letter-spacing:0}.league-table th:nth-child(n+7){width:40px}}
 .ltable td.pc{font-size:11px}
 .mdgrid{table-layout:fixed}.mdgrid th,.mdgrid td{text-align:center}.mdgrid th:first-child{width:36px}
 .mdgrid td:first-child{color:var(--muted)}.mdgrid th:last-child{width:52px}
 .record .more{display:block;margin-top:12px}
-.ltable tr.z-cl td.pos{box-shadow:inset 2px 0 0 var(--title)}
-.ltable tr.z-rel td.pos,.ltable tr.z-po td.pos{box-shadow:inset 2px 0 0 var(--down)}
+.ltable tr.z-cl td.pos{box-shadow:inset 3px 0 0 var(--title)}
+.ltable tr.z-rel td.pos,.ltable tr.z-po td.pos{box-shadow:inset 3px 0 0 var(--down)}
 /* Fakten */
-.fact{display:flex;gap:12px;border-top:1px solid var(--line);padding:4px 0 10px}.fact>div{flex:1;min-width:0}
-.ficon{font-size:26px;line-height:1;margin-top:10px}
-.fact h3{margin:10px 0 2px}.fact p{margin:0 0 6px;font-size:13px}
+.fact{display:flex;gap:14px;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin:10px 0}
+.fact>div{flex:1;min-width:0}
+.ficon{font-size:28px;line-height:1;margin-top:2px}
+.fact h3{margin:0 0 6px;font-size:15px}.fact p{margin:0 0 6px;font-size:13px}
 .fact ol{list-style:none;margin:0;padding:0;font-size:12px;color:var(--muted)}
-.fact li{display:flex;align-items:baseline;gap:6px;padding:2px 0}
+.fact li{display:flex;align-items:baseline;gap:6px;padding:4px 0;font-size:13px}
+.fact li+li{border-top:1px solid var(--line)}
 .fr{width:14px;flex:none}.fl{flex:1;min-width:0;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fl .crest{width:14px;height:14px;vertical-align:-2px;margin-right:5px;display:inline-block}
 .fv{white-space:nowrap;font-variant-numeric:tabular-nums}

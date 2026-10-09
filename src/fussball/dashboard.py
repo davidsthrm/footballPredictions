@@ -14,6 +14,8 @@ from __future__ import annotations
 import base64
 import json
 import sqlite3
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from html import escape
@@ -322,11 +324,7 @@ def prob_cell(p: float) -> str:
     banker = p >= BANKER_MIN
     tip = "Wahrscheinlichkeit, dass der getippte Ausgang eintritt" + (" – Banker" if banker else "")
     return (f"<span class='pr{' banker' if banker else ''}' title='{tip}'>"
-            f"{'<i>🔥</i>' if banker else ''}{_pct(p)}</span>")
-
-
-def game_info(*parts: str) -> str:
-    return "<p class='ginfo'>🗓️ " + " · ".join(p for p in parts if p) + "</p>"
+            f"{'<i>🔥</i>' if banker else ''}<small class='prl'>Tendenz </small>{_pct(p)}</span>")
 
 
 def league_matchday(res: pd.DataFrame | None, league: str, season: int, teams_: tuple[str, str], day) -> int | None:
@@ -337,7 +335,7 @@ def league_matchday(res: pd.DataFrame | None, league: str, season: int, teams_: 
     return 1 + max(int(((r.home == t) | (r.away == t)).sum()) for t in teams_)
 
 
-def match_row(r, ctx: Ctx, provisional: bool, md: int | None = None) -> str:
+def match_row(r, ctx: Ctx, provisional: bool) -> str:
     """Eine Zeile je Spiel (Anstoß, Teams, Tipp, Tendenz-Wahrscheinlichkeit); Details per Antippen."""
     _, time = _kickoff(r.kickoff_utc)
     home, away = ctx.names.get(r.home_id, r.home_id), ctx.names.get(r.away_id, r.away_id)
@@ -346,7 +344,7 @@ def match_row(r, ctx: Ctx, provisional: bool, md: int | None = None) -> str:
     th, ta, p_tend, p_exact = _tip(r)
     pick, text = verdict(th, ta, home, away)
     hcls, acls = {1: (" win", ""), 0: ("", ""), -1: ("", " win")}[pick]
-    trs = [f"<tr><th>⚽ Erwartete Tore</th><td>{_num(r.lam_h)}</td><td>{_num(r.lam_a)}</td></tr>"]
+    trs = [f"<tr><th>⚽ Erw. Tore</th><td>{_num(r.lam_h)}</td><td>{_num(r.lam_a)}</td></tr>"]
     if ctx.res is not None:
         d = pd.Timestamp(r.date)
         fh, fa = (views.form_letters(insights.form(ctx.res, t, d)) for t in (r.home_id, r.away_id))
@@ -361,12 +359,9 @@ def match_row(r, ctx: Ctx, provisional: bool, md: int | None = None) -> str:
     notes += [f"🌍 {n}" for n in (europe_note(ctx, t, nm, r.date) for t, nm in ((r.home_id, home), (r.away_id, away))) if n]
     facts = (insights.match_facts(ctx.res, ctx.players, r.home_id, r.away_id, r.date, r.season, ctx.names,
                                   r.lam_h, r.lam_a, ctx.totals or {}) if ctx.res is not None else [])
-    day_txt, _ = _kickoff(r.kickoff_utc)
-    info = game_info(f"{md}. Spieltag" if md else "", config.LEAGUES[r.league].name,
-                     f"{day_txt}, {time}{' (vorläufig)' if provisional else ' Uhr'}", derby(r.home_id, r.away_id))
-    det = (info + outcome_strip(r.p_h, r.p_d, r.p_a, pick)
-           + f"<table class='dt'><thead><tr><th></th><th>{crest(r.home_id, ctx.crests, home)}{escape(home)}</th>"
-             f"<th>{crest(r.away_id, ctx.crests, away)}{escape(away)}</th></tr></thead><tbody>{''.join(trs)}</tbody></table>"
+    det = (outcome_strip(r.p_h, r.p_d, r.p_a, pick)
+           + f"<table class='dt'><thead><tr><th></th><th>{escape(home)}</th><th>{escape(away)}</th></tr></thead>"
+             f"<tbody>{''.join(trs)}</tbody></table>"
            + "<ul class='notes'>" + "".join(f"<li>{n}</li>" for n in notes if n)
            + "".join(f"<li>{escape(f)}</li>" for f in facts) + "</ul>"
            + f'<input type="checkbox" id="x{uid}" class="tg"><label for="x{uid}" class="more">📊 Ergebnismatrix</label>'
@@ -394,7 +389,7 @@ def league_section(lg: str, g: pd.DataFrame, ctx: Ctx, provisional: bool) -> str
     for day, dg in g.groupby("day", sort=True):
         md = dg.md.mode().iloc[0] if dg.md.notna().any() else None
         body += (f"<h3 class='day'>{_day_title(day)}{f' · {int(md)}. Spieltag' if md else ''}</h3>"
-                 + "".join(match_row(r, ctx, provisional, r.md) for r in dg.itertuples()))
+                 + "<div class='group'>" + "".join(match_row(r, ctx, provisional) for r in dg.itertuples()) + "</div>")
     note = "<p class='muted small'>* Anstoßzeit steht noch nicht fest</p>" if provisional else ""
     return (f"<section id='{lg}' class='league' style='--lg:{THEMES[lg].primary}'>"
             f"<h2><span class='logo lg-{lg}'></span>{escape(name)}</h2>{column_head()}{body}{note}</section>")
@@ -442,118 +437,144 @@ def font_css() -> str:
 
 
 CSS = """
-:root{--bg:#fbfaf7;--surface:#fff;--text:#1b1b19;--muted:#77756d;--line:#e5e3dc;--ink:27 27 25;--good:#2e7d4f;
---bad:#b4473c;--title:#2a5d9f;--down:#b4473c;--accent:#1f5fbf}
-@media (prefers-color-scheme:dark){:root{--bg:#131312;--surface:#1c1c1a;--text:#ecebe6;--muted:#99978e;--line:#2e2e2b;
---ink:236 235 230;--good:#6fbf8d;--bad:#e07a6e;--title:#79a7e0;--down:#e07a6e;--accent:#7fb0ef}
-.crest{filter:drop-shadow(0 0 1px rgba(255,255,255,.6))}}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+:root{--bg:#f2f2f7;--surface:#fff;--fill:rgba(120,120,128,.12);--text:#111114;--muted:#6e6e76;--line:rgba(60,60,67,.13);
+--ink:17 17 20;--good:#1f9d55;--bad:#e5484d;--title:#0a66ff;--down:#e5484d;--accent:#0a66ff;
+--shadow:0 1px 2px rgba(0,0,0,.04),0 6px 24px rgba(0,0,0,.05);--radius:16px}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--surface:#1c1c1e;--fill:rgba(118,118,128,.24);--text:#f5f5f7;--muted:#8e8e93;
+--line:rgba(84,84,88,.55);--ink:245 245 247;--good:#32d074;--bad:#ff6961;--title:#4c8dff;--down:#ff6961;--accent:#4c8dff;
+--shadow:none}
+.crest{filter:drop-shadow(0 0 1px rgba(255,255,255,.55))}}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;-webkit-tap-highlight-color:transparent}
 body{margin:0;background:var(--bg);color:var(--text);
 font:15px/1.45 "Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
--webkit-font-smoothing:antialiased}
-main{max-width:680px;margin:0 auto;padding:0 16px 48px}
-h1,h2{font-weight:800;letter-spacing:-.02em}
+-webkit-font-smoothing:antialiased;font-feature-settings:"ss01"}
+main{max-width:720px;margin:0 auto;padding:0 16px calc(56px + env(safe-area-inset-bottom))}
+h1,h2{font-weight:800;letter-spacing:-.025em}
 .muted{color:var(--muted)}.small{font-size:12px}
 a{color:inherit}
 /* Kopf */
-.top{padding:26px 0 4px}
-.top h1{margin:0;font-size:26px;line-height:1.15}
-.top p{margin:4px 0 0;font-size:14px;color:var(--muted)}
-.top p b{color:var(--text);font-weight:600}
+.top{padding:calc(22px + env(safe-area-inset-top)) 4px 6px}
+.top h1{margin:0;font-size:30px;line-height:1.1}
+.top p{margin:6px 0 0;font-size:14px;color:var(--muted)}
+.top p b{color:var(--text);font-weight:700}
 .headrow{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap}
-.refresh{flex:none;font-size:12px;font-weight:600;color:var(--accent);text-decoration:none;
-border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px}
-.refresh:hover{border-color:var(--accent)}
+.refresh{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--accent);
+text-decoration:none;background:var(--surface);border-radius:999px;padding:8px 14px;box-shadow:var(--shadow);
+border:1px solid var(--line);transition:transform .15s}
+.refresh:active{transform:scale(.96)}
 @media (hover:none),(pointer:coarse),(max-width:560px){.refresh{display:none}}
-/* Reiter */
+/* Reiter: am Mac Segmentschalter oben, am Handy Tab-Leiste unten */
 .vt,.tg{position:absolute;opacity:0;pointer-events:none;width:0;height:0}
-.tabs{display:flex;gap:6px;position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 0;margin-top:12px;
-border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}
-@media (max-width:440px){.tabs .ei{display:none}.tabs label{padding:8px 6px!important}}
-.tabs label{flex:1 0 auto;text-align:center;padding:8px 10px;font-size:13px;font-weight:600;border-radius:10px;cursor:pointer;
-border:1px solid var(--line);background:var(--surface);color:var(--text);white-space:nowrap}
+.tabs{display:flex;gap:2px;position:sticky;top:8px;z-index:20;margin:16px 0 4px;padding:3px;border-radius:12px;
+background:color-mix(in srgb,var(--bg) 70%,var(--fill));-webkit-backdrop-filter:blur(18px) saturate(1.6);
+backdrop-filter:blur(18px) saturate(1.6)}
+.tabs label{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 6px;font-size:13px;font-weight:700;
+border-radius:9px;cursor:pointer;color:var(--muted);white-space:nowrap;transition:background-color .2s,color .2s}
+.tabs svg{width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 #t-spiele:checked~.tabs label[for=t-spiele],#t-eu:checked~.tabs label[for=t-eu],#t-erg:checked~.tabs label[for=t-erg],
-#t-tab:checked~.tabs label[for=t-tab],#t-fakt:checked~.tabs label[for=t-fakt]{background:var(--text);color:var(--bg);
-border-color:var(--text)}
+#t-tab:checked~.tabs label[for=t-tab],#t-fakt:checked~.tabs label[for=t-fakt]{background:var(--surface);color:var(--text);
+box-shadow:0 1px 3px rgba(0,0,0,.08)}
+@media (max-width:700px){
+.tabs{position:fixed;top:auto;left:0;right:0;bottom:0;margin:0;padding:6px 6px calc(6px + env(safe-area-inset-bottom));
+border-radius:0;border-top:1px solid var(--line);background:color-mix(in srgb,var(--surface) 82%,transparent)}
+.tabs label{flex-direction:column;gap:2px;padding:4px 0;font-size:10px;font-weight:600;border-radius:0}
+.tabs svg{width:23px;height:23px}
+#t-spiele:checked~.tabs label[for=t-spiele],#t-eu:checked~.tabs label[for=t-eu],#t-erg:checked~.tabs label[for=t-erg],
+#t-tab:checked~.tabs label[for=t-tab],#t-fakt:checked~.tabs label[for=t-fakt]{background:none;box-shadow:none;color:var(--accent)}}
 .view{display:none}
 #t-spiele:checked~.views .v-spiele,#t-eu:checked~.views .v-eu,#t-erg:checked~.views .v-erg,#t-tab:checked~.views .v-tab,
 #t-fakt:checked~.views .v-fakt{display:block}
-/* Liga-Navigation */
-.chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0 2px;scrollbar-width:none}
+/* Sprungmarken */
+.chips{display:flex;gap:8px;overflow-x:auto;padding:12px 2px 4px;margin:0 -2px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
-.chips a{flex:none;display:inline-flex;align-items:center;gap:7px;padding:6px 12px 6px 6px;border-radius:999px;
-border:1px solid var(--line);background:var(--surface);color:var(--text);text-decoration:none;font-size:13px;
-font-weight:600}
-.chips a::after{content:"↓";color:var(--accent);font-size:12px;margin-left:2px}
-.chips .logo{width:22px;height:22px;border-radius:50%;margin:0}
-section{scroll-margin-top:64px}
-.logo{display:inline-block;width:22px;height:22px;border-radius:5px;background:#fff center/84% no-repeat;flex:none;
-vertical-align:-5px;margin-right:8px}
+.chips a{flex:none;display:inline-flex;align-items:center;gap:8px;padding:6px 14px 6px 6px;border-radius:999px;
+background:var(--surface);color:var(--text);text-decoration:none;font-size:13px;font-weight:700;box-shadow:var(--shadow);
+border:1px solid var(--line)}
+.chips .logo{width:24px;height:24px;border-radius:50%;margin:0}
+section{scroll-margin-top:72px}
+.logo{display:inline-block;width:26px;height:26px;border-radius:7px;background:#fff center/80% no-repeat;flex:none;
+vertical-align:-6px;margin-right:10px;box-shadow:0 0 0 1px var(--line)}
 /* Liga und Spiele */
-.league h2{font-size:20px;margin:30px 0 0;padding-bottom:6px;border-bottom:2px solid color-mix(in srgb,var(--lg) 70%,var(--muted))}
-h3.day{font-size:12px;font-weight:600;color:var(--muted);margin:16px 0 2px}
-.match{border-bottom:1px solid var(--line)}
-.row,.colhead{display:grid;grid-template-columns:40px 1fr 44px 1fr 56px;align-items:center;gap:6px;padding:9px 0;cursor:pointer;
+.league h2{display:flex;align-items:center;font-size:21px;margin:30px 4px 0;padding-bottom:10px;position:relative}
+.league h2::after{content:"";position:absolute;left:0;bottom:0;width:36px;height:3px;border-radius:2px;
+background:color-mix(in srgb,var(--lg) 80%,var(--muted))}
+h3.day{font-size:12px;font-weight:700;color:var(--muted);margin:16px 4px 6px;letter-spacing:.01em}
+.group{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.group>.match+.match,.group>.resw+.resw,.group>.res+.res,.group>.resw+.res,.group>.res+.resw{border-top:1px solid var(--line)}
+.row,.colhead{display:grid;grid-template-columns:40px 1fr 50px 1fr 56px;align-items:center;gap:8px;padding:12px 14px;cursor:pointer;
 -webkit-user-select:none;user-select:none}
-.ko{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
-.tm{display:flex;align-items:center;gap:7px;min-width:0;font-size:14px}
+.ko{font-size:12px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+.tm{display:flex;align-items:center;gap:8px;min-width:0;font-size:15px;font-weight:500}
 .tm.h{justify-content:flex-end;text-align:right}
 .nm{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.tm.win{font-weight:700}
-.crest{width:20px;height:20px;background:center/contain no-repeat;flex:none;display:inline-flex;align-items:center;
+.tm.win{font-weight:800}
+.crest{width:22px;height:22px;background:center/contain no-repeat;flex:none;display:inline-flex;align-items:center;
 justify-content:center}
-.crest.none{border-radius:50%;background:var(--line);color:var(--muted);font-size:10px;font-weight:600}
-.tip{text-align:center;font-weight:700;font-size:16px;font-variant-numeric:tabular-nums}
-.pr{text-align:right;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
-.colhead{padding:8px 0 2px;font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.crest.none{border-radius:50%;background:var(--fill);color:var(--muted);font-size:10px;font-weight:700}
+.tip{justify-self:center;min-width:46px;text-align:center;font-weight:800;font-size:16px;font-variant-numeric:tabular-nums;
+background:var(--fill);border-radius:8px;padding:3px 6px;letter-spacing:.02em}
+.pr{text-align:right;font-size:13px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.colhead{padding:2px 14px 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;cursor:default}
 .colhead span:nth-child(2){text-align:right}.colhead span:nth-child(3){text-align:center}.colhead span:last-child{text-align:right}
-.pr::after{content:" ▾";font-size:9px}
-.match>.tg:checked+.row .pr::after{content:" ▴"}
 /* Details */
-.det{display:none;margin:0 0 14px;padding:12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);
-font-size:13px}
+.det{display:none;margin:0 10px 12px;padding:14px;border-radius:12px;background:var(--fill);font-size:13px}
 .match>.tg:checked+.row+.det{display:block}
-.odds{display:flex;height:6px;gap:2px;border-radius:3px;overflow:hidden}
-.odds i{background:rgb(var(--ink) / .14)}.odds i.on{background:var(--accent)}
-.oddcells{display:grid;grid-template-columns:repeat(3,1fr);margin-top:6px;font-variant-numeric:tabular-nums}
+.match>.tg:checked+.row{padding-bottom:8px}
+.odds{display:flex;height:6px;gap:3px;border-radius:3px;overflow:hidden}
+.odds i{background:rgb(var(--ink) / .12);border-radius:3px}.odds i.on{background:var(--accent)}
+.oddcells{display:grid;grid-template-columns:repeat(3,1fr);margin-top:8px;font-variant-numeric:tabular-nums}
 .oddcells div{display:flex;flex-direction:column;color:var(--muted);font-size:11px}
 .oddcells div:nth-child(2){text-align:center}.oddcells div:nth-child(3){text-align:right}
-.oddcells b{font-size:16px;color:var(--text);font-weight:600}.oddcells .on b{color:var(--accent);font-weight:700}
-.tiptag{font-style:normal;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-left:4px;
-padding:1px 5px;border-radius:4px;border:1px solid currentColor;color:var(--text)}
-.dt{width:100%;border-collapse:collapse;margin-top:12px;table-layout:fixed}
-.dt th,.dt td{text-align:left;vertical-align:top;padding:7px 4px;border-top:1px solid var(--line)}
-.dt thead th{border-top:0;font-size:12px;font-weight:700;padding-bottom:4px}
-.dt thead th .crest{width:16px;height:16px;vertical-align:-3px;margin-right:5px;display:inline-block}
-.dt tbody th{width:28%;font-weight:600;font-size:12px;color:var(--muted)}
+.oddcells b{font-size:18px;color:var(--text);font-weight:700;letter-spacing:-.01em}.oddcells .on b{color:var(--accent);font-weight:800}
+.tiptag{font-style:normal;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-left:5px;
+padding:1px 5px;border-radius:4px;background:var(--text);color:var(--bg)}
+.dt{width:100%;border-collapse:collapse;margin-top:14px;table-layout:fixed}
+.dt th,.dt td{text-align:left;vertical-align:top;padding:8px 4px;border-top:1px solid var(--line)}
+.dt thead th{border-top:0;font-size:12px;font-weight:800;padding-bottom:6px}
+.dt tbody th{width:30%;font-weight:600;font-size:12px;color:var(--muted)}
 .dt tbody th small{display:block;font-weight:400}
-.dt td{font-variant-numeric:tabular-nums}
-.abl{list-style:none;margin:0;padding:0}.abl li{margin:0 0 5px;line-height:1.3}
+.dt td{font-variant-numeric:tabular-nums;overflow-wrap:anywhere;-webkit-hyphens:auto;hyphens:auto}
+.abl{list-style:none;margin:0;padding:0}.abl li{margin:0 0 6px;line-height:1.3}
 .abl small{display:block;color:var(--muted);font-size:11px}
-.dt td{overflow-wrap:anywhere;-webkit-hyphens:auto;hyphens:auto}
-.frm{letter-spacing:.08em;font-size:12px;font-weight:600}
+.frm{letter-spacing:.1em;font-size:12px;font-weight:800}
 .frm .fS{color:var(--good)}.frm .fU{color:var(--muted)}.frm .fN{color:var(--bad)}
-.notes{list-style:none;margin:10px 0 0;padding:10px 0 0;border-top:1px solid var(--line)}
-.notes li{margin:4px 0;line-height:1.4}
-.more{display:inline-block;margin-top:10px;font-size:12px;font-weight:600;color:var(--accent);cursor:pointer}
-.more::after{content:" ▾"}
-.mx{display:none;margin-top:8px}.det>.tg:checked+.more+.mx{display:block}
-.matrix{border-collapse:separate;border-spacing:2px;font-size:11px;font-variant-numeric:tabular-nums;width:100%;
-max-width:360px;table-layout:fixed}
-.matrix caption{caption-side:bottom;text-align:left;font-size:11px;color:var(--muted);padding-top:4px}
-.matrix th{color:var(--muted);font-weight:500;font-size:10px}
-.matrix td{text-align:center;padding:6px 0;border-radius:3px}
-.matrix td.mtip{box-shadow:inset 0 0 0 1.5px var(--text);font-weight:700}
+.notes{list-style:none;margin:12px 0 0;padding:12px 0 0;border-top:1px solid var(--line)}
+.notes li{margin:5px 0;line-height:1.45}
+.more{display:inline-flex;align-items:center;gap:4px;margin-top:12px;font-size:13px;font-weight:700;color:var(--accent);cursor:pointer}
+.more::after{content:"";width:6px;height:6px;border:solid currentColor;border-width:0 1.8px 1.8px 0;transform:rotate(45deg) translateY(-2px);
+margin-left:4px;transition:transform .2s}
+.tg:checked+.more::after{transform:rotate(-135deg) translateY(-1px)}
+.mx{display:none;margin-top:10px}.det>.tg:checked+.more+.mx{display:block}
+.matrix{border-collapse:separate;border-spacing:3px;font-size:11px;font-variant-numeric:tabular-nums;width:100%;
+max-width:380px;table-layout:fixed}
+.matrix caption{caption-side:bottom;text-align:left;font-size:11px;color:var(--muted);padding-top:6px}
+.matrix th{color:var(--muted);font-weight:600;font-size:10px}
+.matrix td{text-align:center;padding:7px 0;border-radius:5px}
+.matrix td.mtip{box-shadow:inset 0 0 0 2px var(--accent);font-weight:800}
 /* Textseiten */
-.plain h2{font-size:20px;margin:28px 0 8px}
-h3{font-size:14px;margin:20px 0 6px}
-.lead{font-size:15px;margin:16px 0 4px}
-.stats{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums;margin-top:6px}
-.stats th,.stats td{text-align:right;padding:7px 4px;border-bottom:1px solid var(--line)}
+.plain h2{font-size:21px;margin:30px 4px 10px}
+h3{font-size:14px;margin:20px 4px 8px}
+.lead{font-size:15px;margin:16px 4px 6px}
+.stats,.ltable{width:100%;border-collapse:separate;border-spacing:0;background:var(--surface);border-radius:var(--radius);
+box-shadow:var(--shadow);overflow:hidden;font-variant-numeric:tabular-nums}
+.stats{font-size:13px;margin-top:8px}
+.stats th,.stats td{text-align:right;padding:10px 12px;border-bottom:1px solid var(--line)}
+.stats tr:last-child td{border-bottom:0}
 .stats th:first-child,.stats td:first-child{text-align:left}
-.stats th{font-size:11px;color:var(--muted);font-weight:500}
-.stats caption{caption-side:bottom;text-align:left;font-size:11px;color:var(--muted);padding-top:6px}
-footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--line);color:var(--muted);font-size:11px;line-height:1.5}
+.stats th{font-size:11px;color:var(--muted);font-weight:700}
+.stats caption{caption-side:bottom;text-align:left;font-size:11px;color:var(--muted);padding:8px 4px 0}
+.prl{display:none;font-size:11px;font-weight:600}
+@media (max-width:560px){
+.top h1{font-size:26px}main{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+.colhead{display:none}
+.row{grid-template-columns:1fr 54px 1fr;grid-template-areas:"h t a" "k k p";row-gap:4px;padding:11px 12px}
+.row .ko{grid-area:k}.row .tm.h{grid-area:h}.row .tip{grid-area:t}.row .tm.a{grid-area:a}.row .pr{grid-area:p}
+.row .tags{grid-column:1/-1;margin-top:0}
+.ko,.pr{font-size:11px}.prl{display:inline}.tm{font-size:14px;gap:7px}.crest{width:20px;height:20px}
+.row .nm,.res .nm{white-space:normal;text-overflow:clip;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+line-height:1.2;overflow-wrap:normal}
+.det{margin:0 6px 10px;padding:12px}.dt tbody th{width:32%}}
+footer{margin:40px 4px 0;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:11px;line-height:1.6}
 """
 
 
@@ -631,16 +652,16 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
     else:
         title, stamp, results_until = "– noch keiner geplant", "", "–"
     return f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark">
-<title>Dein Tippspiel-Assistent</title><style>{font_css()}{CSS}{views.CSS}{dashboard_europe.CSS}{fx.CSS}{''.join(img_css)}</style></head><body><main>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light dark">{app_meta()}
+<title>Dein Tippspiel-Assistent</title><style>{font_css()}{CSS}{views.CSS}{dashboard_europe.CSS}{fx.CSS}{fx.stadium_css()}{''.join(img_css)}</style></head><body><main>
 {fx.eggs_inputs()}{fx.stadium_fx()}{fx.seasonal(today)}
 <header class="top"><div class="headrow">{fx.title()}
-<a class="refresh" href="tippspiel://refresh" title="Startet den Lauf auf dem Mac (ca. 10 Min.)">↻ Jetzt aktualisieren</a></div><p>{fx.ball_icon(today)} <b>Spieltag {escape(title)}</b>{' · ' + stamp if stamp else ''}</p></header>
+<a class="refresh" href="tippspiel://refresh" title="Startet den Lauf auf dem Mac (ca. 3 Min.)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg>Aktualisieren</a></div><p>{fx.ball_icon(today)} <b>Spieltag {escape(title)}</b>{' · ' + stamp if stamp else ''}</p></header>
 <input type="radio" name="view" id="t-spiele" class="vt" checked><input type="radio" name="view" id="t-eu" class="vt">
 <input type="radio" name="view" id="t-erg" class="vt">
 <input type="radio" name="view" id="t-tab" class="vt"><input type="radio" name="view" id="t-fakt" class="vt">
-<div class="tabs"><label for="t-spiele"><span class="ei">📅 </span>Spiele</label><label for="t-eu"><span class="ei">🌍 </span>Europa</label><label for="t-erg"><span class="ei">✅ </span>Ergebnisse</label>
-<label for="t-tab"><span class="ei">🏆 </span>Tabellen</label><label for="t-fakt"><span class="ei">💡 </span>Fakten</label></div>
+<div class="tabs"><label for="t-spiele"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg><span>Spiele</span></label><label for="t-eu"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg><span>Europa</span></label><label for="t-erg"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6h10M10 12h10M10 18h10"/><path d="M3.5 6l1.3 1.3L7.5 4.6M3.5 12l1.3 1.3 2.7-2.7M3.5 18l1.3 1.3 2.7-2.7"/></svg><span>Ergebnisse</span></label>
+<label for="t-tab"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18M3 14.5h18M9 9v11"/></svg><span>Tabellen</span></label><label for="t-fakt"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 18h5M10.5 21h3"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.3 1.1 2.1v.1h5v-.1c0-.8.4-1.5 1.1-2.1A6 6 0 0 0 12 3z"/></svg><span>Fakten</span></label></div>
 <div class="views"><div class="view v-spiele">{games}</div><div class="view v-eu">{europa}</div>
 <div class="view v-erg">{results}</div>
 <div class="view v-tab">{views.table_view(proj, ctx)}</div><div class="view v-fakt">{fakten}</div></div>
@@ -649,8 +670,31 @@ ohne Wettquoten · Wappen und Logos: Transfermarkt, nur privat {fx.stadium_label
 </main></body></html>"""
 
 
+APP_ICON = config.SEED_DIR / "img" / "app_icon.png"
+
+
+def app_meta() -> str:
+    """Home-Bildschirm/Web-App: Name, Statusleiste, Symbol (180 px, eingebettet)."""
+    icon = ""
+    if APP_ICON.exists():
+        with tempfile.TemporaryDirectory() as tmp:     # macOS: sips verkleinert ohne zusätzliche Abhängigkeit
+            small = Path(tmp) / "icon180.png"
+            ok = subprocess.run(["sips", "-z", "180", "180", str(APP_ICON), "--out", str(small)],
+                                capture_output=True).returncode == 0
+            data = (small if ok else APP_ICON).read_bytes()
+        icon = f'<link rel="apple-touch-icon" href="data:image/png;base64,{base64.b64encode(data).decode()}">'
+    return ('<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">'
+            '<meta name="apple-mobile-web-app-title" content="Tippspiel">'
+            '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">'
+            '<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">'
+            '<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">' + icon)
+
+
 def build(con: sqlite3.Connection, out: Path | None = None, today: date | None = None) -> Path:
+    """Schreibt das Dashboard; liegt das Ziel außerhalb von data/ (iCloud-Kopie), kommt das App-Symbol daneben."""
     out = Path(out or OUT_FILE)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(con, today), encoding="utf-8")
+    if APP_ICON.exists() and out.parent != OUT_FILE.parent:
+        (out.parent / "Tippspiel-Symbol.png").write_bytes(APP_ICON.read_bytes())
     return out
