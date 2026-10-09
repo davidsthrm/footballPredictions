@@ -304,6 +304,12 @@ def tip_reason(r, pick: int, home: str, away: str) -> str:
     return f"🎲 Tipp {name[pick]}, obwohl {name[top]} wahrscheinlicher ist (bringt über die Saison mehr Punkte)"
 
 
+def meta_line(time: str, p: float) -> str:
+    """Handy: Anstoß und Tendenz als eine zentrierte Zeile unter dem Tipp (am Mac in eigenen Spalten)."""
+    fire = "🔥 " if p >= BANKER_MIN else ""
+    return f"<span class='meta'>{escape(time) + ' · ' if time else ''}{fire}Tendenz {_pct(p)}</span>"
+
+
 def column_head() -> str:
     return ("<div class='colhead' aria-hidden='true'><span>Anstoß</span><span>Heim</span><span>Tipp</span>"
             "<span>Gast</span><span title='Wahrscheinlichkeit, dass der getippte Ausgang eintritt'>Tendenz</span></div>")
@@ -324,7 +330,7 @@ def prob_cell(p: float) -> str:
     banker = p >= BANKER_MIN
     tip = "Wahrscheinlichkeit, dass der getippte Ausgang eintritt" + (" – Banker" if banker else "")
     return (f"<span class='pr{' banker' if banker else ''}' title='{tip}'>"
-            f"{'<i>🔥</i>' if banker else ''}<small class='prl'>Tendenz </small>{_pct(p)}</span>")
+            f"{'<i>🔥</i>' if banker else ''}{_pct(p)}</span>")
 
 
 def league_matchday(res: pd.DataFrame | None, league: str, season: int, teams_: tuple[str, str], day) -> int | None:
@@ -372,7 +378,7 @@ def match_row(r, ctx: Ctx, provisional: bool) -> str:
 <span class="tm h{hcls}"><span class="nm">{escape(home)}</span>{crest(r.home_id, ctx.crests, home)}</span>
 <span class="tip{' zz' if th == ta == 0 else ''}">{th}:{ta}</span>
 <span class="tm a{acls}">{crest(r.away_id, ctx.crests, away)}<span class="nm">{escape(away)}</span></span>
-{prob_cell(p_tend)}{row_tags(r.home_id, r.away_id)}</label>
+{prob_cell(p_tend)}{meta_line(time + ('*' if provisional else ''), p_tend)}{row_tags(r.home_id, r.away_id)}</label>
 <div class="det">{det}</div></div>"""
 
 
@@ -563,14 +569,14 @@ box-shadow:var(--shadow);overflow:hidden;font-variant-numeric:tabular-nums}
 .stats th:first-child,.stats td:first-child{text-align:left}
 .stats th{font-size:11px;color:var(--muted);font-weight:700}
 .stats caption{caption-side:bottom;text-align:left;font-size:11px;color:var(--muted);padding:8px 4px 0}
-.prl{display:none;font-size:11px;font-weight:600}
+.meta{display:none;text-align:center;font-size:11px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
 @media (max-width:560px){
 .top h1{font-size:26px}main{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
 .colhead{display:none}
-.row{grid-template-columns:1fr 54px 1fr;grid-template-areas:"h t a" "k k p";row-gap:4px;padding:11px 12px}
-.row .ko{grid-area:k}.row .tm.h{grid-area:h}.row .tip{grid-area:t}.row .tm.a{grid-area:a}.row .pr{grid-area:p}
-.row .tags{grid-column:1/-1;margin-top:0}
-.ko,.pr{font-size:11px}.prl{display:inline}.tm{font-size:14px;gap:7px}.crest{width:20px;height:20px}
+.row{grid-template-columns:1fr 54px 1fr;grid-template-areas:"h t a" "m m m";row-gap:5px;padding:12px 12px 10px}
+.row .tm.h{grid-area:h}.row .tip{grid-area:t}.row .tm.a{grid-area:a}.row .meta{grid-area:m;display:block}
+.row .ko,.row .pr{display:none}
+.row .tags{grid-column:1/-1;margin-top:0}.tm{font-size:14px;gap:7px}.crest{width:20px;height:20px}
 .row .nm,.res .nm{white-space:normal;text-overflow:clip;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
 line-height:1.2;overflow-wrap:normal}
 .det{margin:0 6px 10px;padding:12px}.dt tbody th{width:32%}}

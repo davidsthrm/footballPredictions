@@ -52,6 +52,12 @@ def _points(p: pd.DataFrame) -> pd.DataFrame:
 PT_ICON = {4: "🎯", 3: "✅", 2: "✌️", 0: "–"}
 
 
+def result_meta(tip_h: int, tip_a: int, pts: int, live: bool) -> str:
+    """Handy: Tipp und Punkte als eine zentrierte Zeile unter dem Ergebnis."""
+    return (f"<span class='meta'>{'● ' if live else ''}Tipp {int(tip_h)}:{int(tip_a)} · {PT_ICON[pts]} "
+            f"{pts} Punkt{'e' if pts != 1 else ''}</span>")
+
+
 def match_stats(con, played: pd.DataFrame) -> dict[tuple, str]:
     """Details je gespieltem Spiel (Schlüssel: Datum, Heim-ID, Gast-ID): Tore, xG, Statistik, Top-Spieler.
 
@@ -110,8 +116,9 @@ def _result_line(r, ctx, stats: dict | None = None) -> str:
     line = (f"<span class='tm h{wh}'><span class='nm'>{escape(home)}</span>"
             f"{d.crest(r.home_id, ctx.crests, home)}</span><span class='sc'>{int(r.hg)}:{int(r.ag)}</span>"
             f"<span class='tm a{wa}'>{d.crest(r.away_id, ctx.crests, away)}<span class='nm'>{escape(away)}"
-            f"</span></span><span class='tp'>{live}<small class='prl'>Tipp </small>{int(r.tip_h)}:{int(r.tip_a)}</span>"
-            f"<span class='pt p{r.pts}' title='{r.pts} Punkte'>{PT_ICON[r.pts]}<small>{r.pts}</small></span>")
+            f"</span></span><span class='tp'>{live}{int(r.tip_h)}:{int(r.tip_a)}</span>"
+            f"<span class='pt p{r.pts}' title='{r.pts} Punkte'>{PT_ICON[r.pts]}<small>{r.pts}</small></span>"
+            f"{result_meta(r.tip_h, r.tip_a, r.pts, r.source == 'live')}")
     det = (stats or {}).get((str(r.date)[:10], r.home_id, r.away_id))
     if not det:
         return f"<li class='res'>{line}</li>"
@@ -317,9 +324,9 @@ CSS = """
 .rdet .dt{margin-top:0}.star{margin:10px 0 0}
 .res{display:grid;grid-template-columns:1fr 48px 1fr 34px 36px;align-items:center;gap:8px;padding:11px 14px;font-size:14px}
 .res .tm{font-size:14px}.res .crest{width:20px;height:20px}
-@media (max-width:560px){.res{grid-template-columns:1fr 50px 1fr;grid-template-areas:"h s a" "q q z";row-gap:4px;padding:10px 12px}
-.res .tm.h{grid-area:h}.res .sc{grid-area:s}.res .tm.a{grid-area:a}.res .tp{grid-area:q;text-align:left}.res .pt{grid-area:z}
-.res .tm{font-size:13px}}
+@media (max-width:560px){.res{grid-template-columns:1fr 50px 1fr;grid-template-areas:"h s a" "m m m";row-gap:5px;padding:12px 12px 10px}
+.res .tm.h{grid-area:h}.res .sc{grid-area:s}.res .tm.a{grid-area:a}.res .meta{grid-area:m;display:block}
+.res .tp,.res .pt{display:none}.res .tm{font-size:13px}}
 .sc{justify-self:center;min-width:44px;text-align:center;font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;
 background:var(--fill);border-radius:8px;padding:2px 6px}
 .tp{text-align:right;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}

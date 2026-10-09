@@ -111,20 +111,21 @@ def match_row(r, ctx, games: pd.DataFrame) -> str:
 <span class="tm h{hcls}"><span class="nm">{escape(home)}</span>{crest(r.tm_home_id, home)}</span>
 <span class="tip{' zz' if th == ta == 0 else ''}">{th}:{ta}</span>
 <span class="tm a{acls}">{crest(r.tm_away_id, away)}<span class="nm">{escape(away)}</span></span>
-{d.prob_cell(p_tend)}{d.row_tags(r.home_id, r.away_id)}</label>
+{d.prob_cell(p_tend)}{d.meta_line(r.kickoff if isinstance(r.kickoff, str) else "", p_tend)}{d.row_tags(r.home_id, r.away_id)}</label>
 <div class="det">{det}</div></div>"""
 
 
 def _result_line(r, ctx) -> str:
-    from fussball.dashboard_views import PT_ICON
+    from fussball.dashboard_views import PT_ICON, result_meta
     home, away = _name(ctx, r.home, r.home_name), _name(ctx, r.away, r.away_name)
     wh, wa = (" win", "") if r.hg > r.ag else (("", " win") if r.hg < r.ag else ("", ""))
     live = "<span class='live' title='live getippt'>●</span>" if r.source == "live" else ""
     return (f"<li class='res'><span class='tm h{wh}'><span class='nm'>{escape(home)}</span>"
             f"{crest(r.tm_home_id, home)}</span><span class='sc'>{int(r.hg)}:{int(r.ag)}</span>"
             f"<span class='tm a{wa}'>{crest(r.tm_away_id, away)}<span class='nm'>{escape(away)}</span></span>"
-            f"<span class='tp'>{live}<small class='prl'>Tipp </small>{int(r.tip_h)}:{int(r.tip_a)}</span>"
-            f"<span class='pt p{r.points}' title='{r.points} Punkte'>{PT_ICON[r.points]}<small>{r.points}</small></span></li>")
+            f"<span class='tp'>{live}{int(r.tip_h)}:{int(r.tip_a)}</span>"
+            f"<span class='pt p{r.points}' title='{r.points} Punkte'>{PT_ICON[r.points]}<small>{r.points}</small></span>"
+            f"{result_meta(r.tip_h, r.tip_a, r.points, r.source == 'live')}</li>")
 
 
 def season_results(con: sqlite3.Connection, season: int) -> pd.DataFrame:
