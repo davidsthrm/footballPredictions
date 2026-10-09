@@ -1,7 +1,8 @@
 """„Liquid Glass“ wie in iOS 26 / macOS Tahoe – nur CSS.
 
 Glas für Bedienelemente und Navigation (schwebende Tab-Leiste, Sprungmarken, Knöpfe), Inhalte
-bleiben massiv (Karten). Farben, Schriftgrößen, Trennlinien und Abstände nach Apples Systemwerten.
+bleiben massiv (Karten). Farben, Schriftgrößen, Trennlinien und Abstände nach Apples Systemwerten,
+dahinter ein dezenter, langsam fließender Farbverlauf.
 Glas-Rezept: durchscheinender Grund + Weichzeichnung/Sättigung des Hintergrunds + Lichtkante
 (::before mit Verlauf, als Rand maskiert) + innerer Glanz oben. Wird nach allen anderen Styles
 eingebunden und überschreibt sie.
@@ -11,8 +12,10 @@ from __future__ import annotations
 
 
 def ambient() -> str:
-    """Weicher Übergang unter der schwebenden Tab-Leiste (iOS „scroll edge“)."""
-    return "<div class='edgefade' aria-hidden='true'></div>"
+    """Dezenter, langsam fließender Farbverlauf als Hintergrund, Milchglas hinter der Statusleiste und
+    weicher Übergang unter der schwebenden Tab-Leiste (iOS „scroll edge“)."""
+    return ("<div class='aurora' aria-hidden='true'><i></i><i></i><i></i></div>"
+            "<div class='statusbar' aria-hidden='true'></div><div class='edgefade' aria-hidden='true'></div>")
 
 
 CSS = """
@@ -103,6 +106,29 @@ li.res::before{list-style:none}
 #t-spiele:checked~.tabs label[for=t-spiele] svg,#t-eu:checked~.tabs label[for=t-eu] svg,#t-erg:checked~.tabs label[for=t-erg] svg,
 #t-tab:checked~.tabs label[for=t-tab] svg,#t-fakt:checked~.tabs label[for=t-fakt] svg{fill:currentColor;fill-opacity:.2}
 @media (max-width:560px){.tm{font-size:15px;letter-spacing:-.016em}.row{padding:11px 14px 9px}}
+
+/* Hintergrund: Aurora – drei weiche Farbfelder, sehr langsam in Bewegung, kaum sichtbar */
+@keyframes drift1{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(12vw,8vh) scale(1.15)}}
+@keyframes drift2{0%,100%{transform:translate(0,0) scale(1.1)}50%{transform:translate(-10vw,12vh) scale(.95)}}
+@keyframes drift3{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(6vw,-10vh) scale(1.2)}}
+.aurora{position:fixed;inset:-10%;z-index:-2;pointer-events:none;overflow:hidden}
+.aurora i{position:absolute;border-radius:50%;filter:blur(80px);opacity:.30;will-change:transform}
+.aurora i:nth-child(1){width:70vmax;height:70vmax;left:-25vmax;top:-30vmax;background:#5b8cff;animation:drift1 38s ease-in-out infinite}
+.aurora i:nth-child(2){width:60vmax;height:60vmax;right:-25vmax;top:10vh;background:#a77bff;animation:drift2 46s ease-in-out infinite}
+.aurora i:nth-child(3){width:65vmax;height:65vmax;left:-10vmax;bottom:-35vmax;background:#2fd0b5;opacity:.22;animation:drift3 52s ease-in-out infinite}
+@media (prefers-color-scheme:dark){.aurora i{opacity:.20}.aurora i:nth-child(1){background:#2747c9}
+.aurora i:nth-child(2){background:#5a2aa8}.aurora i:nth-child(3){background:#0e6e62;opacity:.16}}
+body:has(#egg-stadium:checked) .aurora{display:none}
+/* Statusleiste (Web-App im Vollbild): Inhalt läuft unter Milchglas statt unter die Uhr */
+.statusbar{position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);z-index:30;pointer-events:none;
+background:color-mix(in srgb,var(--bg) 55%,transparent);-webkit-backdrop-filter:blur(20px) saturate(1.8);backdrop-filter:blur(20px) saturate(1.8)}
+/* Tabellen: kurze Spaltenköpfe am Handy */
+.ls{display:none}
+@media (max-width:560px){.league-table .lf{display:none}.league-table .ls{display:inline}
+.league-table th:nth-child(n+7){width:38px}.league-table th.prog{width:30px}.league-table th:nth-child(3){width:24px}
+.league-table{font-size:13px}.league-table td.pc{font-size:12px}
+/* Derby-Hinweis mittig unter der Spielzeile */
+.row .tags{grid-column:1/-1;justify-self:center;margin-top:2px}}
 
 /* Inhalte: massive Karten mit iOS-26-Radien */
 .group,.stats,.ltable,.fact,.kpis div,.tie,.cup{border-radius:var(--radius)}

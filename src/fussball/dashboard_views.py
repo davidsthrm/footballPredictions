@@ -285,7 +285,8 @@ def table_view(proj: pd.DataFrame, ctx) -> str:
         out.append(f"""<section id="tab-{lg}" class="league" style="--lg:{d.THEMES[lg].primary}">
 <h2><span class="logo lg-{lg}"></span>{escape(config.LEAGUES[lg].name)}</h2>
 <table class="ltable league-table"><thead><tr><th class="pos">#</th><th class="tn"></th><th>Sp</th><th>TD</th>
-<th>Pkt</th><th class="prog">Erw.</th><th>Meister</th><th>CL</th><th>Abstieg</th></tr></thead>
+<th>Pkt</th><th class="prog">Erw.</th><th><span class="lf">Meister</span><span class="ls">Titel</span></th><th>CL</th>
+<th><span class="lf">Abstieg</span><span class="ls">Abst.</span></th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table>
 <p class="muted small">Erw. = erwartete Punkte am Saisonende</p></section>""")
     return d.chips([(f"tab-{lg}", lg) for lg in leagues]) + "".join(out)
