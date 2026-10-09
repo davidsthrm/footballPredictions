@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 from fussball import config, db, insights, predict, season, teams
-from fussball import dashboard_europe, dashboard_fx as fx, dashboard_views as views
+from fussball import dashboard_europe, dashboard_fx as fx, dashboard_glass as glass, dashboard_views as views
 from fussball.features import availability
 from fussball.ingest import europe, transfermarkt
 
@@ -653,8 +653,8 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
         title, stamp, results_until = "– noch keiner geplant", "", "–"
     return f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light dark">{app_meta()}
-<title>Dein Tippspiel-Assistent</title><style>{font_css()}{CSS}{views.CSS}{dashboard_europe.CSS}{fx.CSS}{fx.stadium_css()}{''.join(img_css)}</style></head><body><main>
-{fx.eggs_inputs()}{fx.stadium_fx()}{fx.seasonal(today)}
+<title>Dein Tippspiel-Assistent</title><style>{font_css()}{CSS}{views.CSS}{dashboard_europe.CSS}{fx.CSS}{fx.stadium_css()}{glass.CSS}{''.join(img_css)}</style></head><body><main>
+{fx.eggs_inputs()}{glass.ambient()}{fx.stadium_fx()}{fx.seasonal(today)}
 <header class="top"><div class="headrow">{fx.title()}
 <a class="refresh" href="tippspiel://refresh" title="Startet den Lauf auf dem Mac (ca. 3 Min.)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg>Aktualisieren</a></div><p>{fx.ball_icon(today)} <b>Spieltag {escape(title)}</b>{' · ' + stamp if stamp else ''}</p></header>
 <input type="radio" name="view" id="t-spiele" class="vt" checked><input type="radio" name="view" id="t-eu" class="vt">

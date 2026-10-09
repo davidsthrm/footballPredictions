@@ -45,6 +45,8 @@ Das Dashboard liegt nach jedem Lauf in iCloud Drive (`FUSSBALL_DASHBOARD_COPY`),
    (Option „Ordnerauswahl anzeigen“ aus), danach Aktion **Übersicht**.
 2. `Tippspiel-Symbol.png` in der Dateien-App öffnen → Teilen → „Bild sichern“ (landet in Fotos).
 3. Kurzbefehl → Teilen → **Zum Home-Bildschirm** → Symbol antippen → Foto wählen → „Hinzufügen“.
+Wichtig: **Übersicht** verwenden, nicht „In Safari öffnen“ – Safari öffnet aus Kurzbefehlen keine lokalen
+Dateien („Safari ist nicht installiert oder konnte die Datei nicht öffnen“).
 Der Kurzbefehl holt bei jedem Öffnen die aktuelle Datei aus iCloud (die Dateien-App zeigt dagegen
 manchmal noch eine zwischengespeicherte ältere Kopie).
 

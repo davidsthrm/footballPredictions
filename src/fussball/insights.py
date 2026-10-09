@@ -25,6 +25,9 @@ class Fact:
     kind: str = "team"               # team | player | match
 
 
+TOP_N = 5   # Plätze je Fakten-Rangliste
+
+
 def _fmt(x: float, digits: int = 1) -> str:
     return f"{x:.{digits}f}".replace(".", ",")
 
@@ -135,7 +138,7 @@ def weekly_facts(res: pd.DataFrame, players: pd.DataFrame, backtest: pd.DataFram
                                                           xgf=("xgf", "sum"), xga=("xga", "sum")).reset_index()
     t = t[t.n >= 3]
     nm = lambda x: names.get(x, x)
-    top = lambda df, col, asc, fmt: [(r.team, fmt(r)) for r in df.sort_values(col, ascending=asc).head(3).itertuples()]
+    top = lambda df, col, asc, fmt: [(r.team, fmt(r)) for r in df.sort_values(col, ascending=asc).head(TOP_N).itertuples()]
     t["gpg"], t["gapg"], t["luck"], t["dluck"] = t.gf / t.n, t.ga / t.n, t.gf - t.xgf, t.xga - t.ga
     if len(t):
         b = t.sort_values("gpg", ascending=False).iloc[0]
@@ -162,19 +165,19 @@ def weekly_facts(res: pd.DataFrame, players: pd.DataFrame, backtest: pd.DataFram
     if serien:
         serien.sort(key=lambda x: -x[1])
         facts.append(Fact("📈", "Ungeschlagen", f"{nm(serien[0][0])}: seit {serien[0][1]} Ligaspielen ohne Niederlage.",
-                          [(tm, f"{k} Spiele") for tm, k in serien[:3]]))
+                          [(tm, f"{k} Spiele") for tm, k in serien[:TOP_N]]))
     # Spieler
     pl = players[players.goals > 0]
     if len(pl):
         b = pl.sort_values(["goals", "xg"], ascending=False).iloc[0]
         facts.append(Fact("👟", "Torjäger", f"{b.player} führt mit {int(b.goals)} Toren.",
                           [(r.player, f"{int(r.goals)} Tore · {_fmt(r.xg)} xG") for r in
-                           pl.sort_values(["goals", "xg"], ascending=False).head(3).itertuples()], "player"))
+                           pl.sort_values(["goals", "xg"], ascending=False).head(TOP_N).itertuples()], "player"))
         pl = pl.assign(over=pl.goals - pl.xg)
         b = pl.sort_values("over", ascending=False).iloc[0]
         facts.append(Fact("🎯", "Spieler über xG", f"{b.player}: {_fmt(b.over)} Tore mehr als seine xG.",
                           [(r.player, f"{int(r.goals)} Tore aus {_fmt(r.xg)} xG") for r in
-                           pl.sort_values("over", ascending=False).head(3).itertuples()], "player"))
+                           pl.sort_values("over", ascending=False).head(TOP_N).itertuples()], "player"))
     # Überraschung und Berechenbarkeit (Walk-forward-Vorhersagen)
     if backtest is not None and len(backtest):
         bt = backtest[backtest.season == season].copy()
@@ -188,7 +191,7 @@ def weekly_facts(res: pd.DataFrame, players: pd.DataFrame, backtest: pd.DataFram
                               f"{nm(s.home)} – {nm(s.away)} {int(s.hg)}:{int(s.ag)}: Das Modell gab {outcome} "
                               f"nur {s.p_out * 100:.0f} %.",
                               [(f"{nm(r.home)} – {nm(r.away)}", f"{int(r.hg)}:{int(r.ag)} · {r.p_out * 100:.0f} %")
-                               for r in recent.sort_values("p_out").head(3).itertuples()], "match"))
+                               for r in recent.sort_values("p_out").head(TOP_N).itertuples()], "match"))
             bt["tend"] = np.sign(bt.tip_h - bt.tip_a) == np.sign(bt.hg - bt.ag)
             lg = bt.groupby("league").tend.mean().sort_values(ascending=False)
             facts.append(Fact("🔮", "Tendenz je Liga",

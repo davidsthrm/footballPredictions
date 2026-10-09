@@ -109,7 +109,10 @@ Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tip
   Vorschau funktionieren); Auf-/Zuklappen per Checkbox+Label (kein <details>), standard-
   mäßig eingeklappt. Zahlen im deutschen Format, Zeiten in Europe/Berlin.
   Gestaltung: Titel „Dein Tippspiel-Assistent“, Schrift Plus Jakarta Sans (SIL OFL, variable woff2
-  unter data_seed/fonts/, base64 eingebettet). Erklärtexte nur, wo nötig. Look wie eine native App:
+  unter data_seed/fonts/, base64 eingebettet; auf Apple-Geräten gewinnt SF Pro). Erklärtexte nur, wo nötig.
+  „Liquid Glass“ (iOS 26/macOS Tahoe) in `dashboard_glass.py`: Glas nur für Navigation und Knöpfe
+  (schwebende Tab-Leiste mit Linse, Sprungmarken, Aktualisieren, Aufklapp-Knöpfe), Inhalte massiv,
+  dezentes Umgebungslicht dahinter. Look wie eine native App:
   iOS-Systemgrau/echtes Schwarz, Spieltage als gruppierte Karten, Tipp als Pille; Reiter am Mac als
   Segmentschalter oben, am Handy (≤ 700 px) als Tab-Leiste unten mit Linien-Icons; Spielzeilen am
   Handy zweizeilig (Teams + Tipp, darunter Anstoß und „Tendenz x %“). Details ohne Datum/Uhrzeit

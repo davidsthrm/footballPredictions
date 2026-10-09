@@ -136,6 +136,9 @@ radial-gradient(ellipse 90% 60% at 50% 30%,transparent 40%,rgba(5,7,11,.6) 100%)
 body:has(#egg-stadium:checked){background:#05070b;--bg:rgba(8,11,17,.7);--surface:rgba(20,25,34,.62);--fill:rgba(255,255,255,.07);
 --line:rgba(255,255,255,.1);--text:#f3f5f9;--muted:#a3adbb;--ink:243 245 249;--accent:#ffd34d;color-scheme:dark}
 body:has(#egg-stadium:checked) main{position:relative;z-index:1}
+body:has(#egg-stadium:checked) .ambient{display:none}
+body:has(#egg-stadium:checked){--glass:rgba(20,24,32,.5);--glass-lens:rgba(255,255,255,.14);--glass-rim:rgba(255,255,255,.35);
+--glass-rim2:rgba(255,255,255,.08);--glass-hi:inset 0 1px 0 rgba(255,255,255,.22)}
 body:has(#egg-stadium:checked) :is(.group,.chips a,.tabs,.tie,.cup,.kpis div,.fact,.stats,.ltable){-webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2)}
 
 /* Saison */
