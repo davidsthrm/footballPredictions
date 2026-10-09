@@ -8,7 +8,7 @@ gefittet (Aufsteiger haben so eine Historie); Heimvorteil je Spielklasse. Ein
 L2-Term auf α/β macht das Modell identifizierbar und zieht Teams mit wenig Daten
 zum Mittel. ρ korrigiert die Abhängigkeit bei 0:0, 1:0, 0:1, 1:1.
 
-Gewicht eines Spiels: exp(-ξ · Tage vor dem Cutoff).
+Gewicht eines Spiels: exp(-ξ · Tage vor dem Cutoff), optional mal Spalte `weight`.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ class DixonColes:
 
     # --- Fit -------------------------------------------------------------------------------
     def fit(self, df: pd.DataFrame, cutoff: pd.Timestamp, warm_start: DixonColes | None = None) -> DixonColes:
-        """df: Spalten date (Timestamp), home, away, hg, ag, tier. Nutzt nur date < cutoff.
+        """df: Spalten date (Timestamp), home, away, hg, ag, tier (optional weight). Nutzt nur date < cutoff.
 
         hg/ag dürfen nicht-ganzzahlig sein (z.B. xG): Poisson-Quasi-Likelihood.
         """
@@ -66,6 +66,8 @@ class DixonColes:
         y = d.ag.to_numpy(dtype=float)
         age = (cutoff - d.date).dt.days.to_numpy(dtype=float)
         w = np.exp(-self.xi * age)
+        if "weight" in d:
+            w = w * d.weight.to_numpy(dtype=float)
 
         # Parametervektor: [μ, h_tier..., α_1..n, β_1..n, ρ]
         i_h, i_a, i_b, i_r = 1, 1 + nt, 1 + nt + n, 1 + nt + 2 * n

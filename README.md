@@ -56,6 +56,14 @@ rekonstruieren – je seltener der Snapshot, desto gröber die Ausfall-Historie.
 Neue Vereine (Aufsteiger) meldet `fussball check` als ungemappt → in
 `data_seed/team_name_map.csv` ergänzen, dann `uv run fussball teams`.
 
+## Europapokal (CL, EL, Conference League)
+```bash
+uv run fussball ingest other-leagues   # weitere Ligen für die Stärke der Gegner
+uv run fussball ingest europe          # Spielpläne + Ergebnisse (Transfermarkt)
+uv run fussball backtest-europe --tune # Parameter auf 2016–2018, Test ab 2019/20
+```
+Danach tippt `fussball predict` auch die nächste Europapokal-Runde (Reiter „Europa“ im Dashboard).
+
 ## Backtest
 ```bash
 uv run fussball backtest --tune   # ξ/reg auf 2016–2018 tunen, Report ab 2019/20

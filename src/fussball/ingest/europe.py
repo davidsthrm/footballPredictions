@@ -1,8 +1,10 @@
 """Europapokal-Spielpläne (Champions League, Europa League, Conference League) von Transfermarkt.
 
 Eine Seite pro Wettbewerb und Saison ("Gesamtspielplan", ~32 Seiten für 2014–heute), inkl.
-bereits angesetzter, noch nicht gespielter Spiele. Nur die Termine werden gebraucht
-(Belastung/Rotation), nicht die Ergebnisse. Qualifikationsrunden sind nicht enthalten.
+bereits angesetzter, noch nicht gespielter Spiele. Gespeichert werden Termine (Belastungs-
+Features), Ergebnisse und Vereinsnamen (Europa-Modell). Qualifikationsrunden sind nicht enthalten,
+Anstoßzeiten stehen nicht auf der Seite. Ergebnisse nach Verlängerung sind nicht markiert und
+zählen mit dem Endstand (betrifft ~1 % der Spiele, nur K.-o.-Runde).
 
 Vereine werden über die Transfermarkt-ID auf team_id gemappt: bekannte IDs aus den
 Snapshots, übrige über Namens-Ähnlichkeit gegen die Teams der Top-5-Ligen derselben
@@ -48,32 +50,96 @@ CREATE TABLE IF NOT EXISTS europe_matches (
     PRIMARY KEY (competition, season, date, tm_home_id, tm_away_id)
 );
 """
+# Später ergänzte Spalten (bestehende Datenbanken werden per ALTER TABLE nachgerüstet)
+EXTRA_COLUMNS = {"tm_match_id": "INTEGER", "home_name": "TEXT", "away_name": "TEXT",
+                 "hg": "INTEGER", "ag": "INTEGER", "kickoff": "TEXT", "round": "TEXT", "leg": "TEXT",
+                 "matchday": "INTEGER"}
+SCORE_RE = re.compile(r"^(\d+):(\d+)$")
+
+
+def ensure_schema(con: sqlite3.Connection) -> None:
+    con.executescript(SCHEMA)
+    have = {r[1] for r in con.execute("PRAGMA table_info(europe_matches)")}
+    for col, typ in EXTRA_COLUMNS.items():
+        if col not in have:
+            con.execute(f"ALTER TABLE europe_matches ADD COLUMN {col} {typ}")
+
+
+DATETIME_RE = re.compile(r"(\d{2}\.\d{2}\.\d{4})(?:\s+(\d{1,2}:\d{2}))?")
+KO_RE = re.compile(r"(Zwischenrunde|Sechzehntelfinale|Achtelfinale|Viertelfinale|Halbfinale|Finale|Play-?offs?)"
+                   r"(?:\s*-\s*(Hin|Rück)spiele)?", re.I)
+MATCHDAY_GAP_DAYS = 4   # Spiele einer Runde liegen höchstens so weit auseinander (Di–Do)
+
+
+def _phase(headline: str) -> str | None:
+    if headline == "Gruppe GP":
+        return "Ligaphase"
+    if headline.startswith("Gruppe "):
+        return "Gruppenphase"
+    return None
 
 
 def parse(html: str) -> pd.DataFrame:
-    """Alle Spiele (Datum, Heim-ID, Auswärts-ID) einer Gesamtspielplan-Seite."""
+    """Alle Spiele einer Gesamtspielplan-Seite: Datum, Anstoß (Ortszeit, falls angesetzt), Runde,
+    Vereine (ID, Slug, Name), Ergebnis. Runde = "Ligaphase"/"Gruppenphase" bzw. K.-o.-Runde, leg =
+    Hin-/Rückspiel; der Spieltag der Liga-/Gruppenphase wird in `add_matchdays` ergänzt."""
     soup = BeautifulSoup(html, "html.parser")
-    rows, current = [], None
-    for tr in soup.select("div.box table tbody tr"):
-        text = tr.get_text(" ", strip=True)
-        m = DATE_RE.search(text)
-        if m:
-            current = datetime.strptime(m.group(1), "%d.%m.%Y").date().isoformat()
-        clubs = []
-        for a in tr.select("a[href*='/verein/']"):
-            cm = CLUB_RE.search(a["href"])
-            if cm and (not clubs or clubs[-1][1] != int(cm.group(2))):
-                clubs.append((cm.group(1), int(cm.group(2))))
-        # Spielzeile: zwei verschiedene Vereine und ein Ergebnis/Uhrzeit-Feld; Tabellenzeilen haben nur einen
-        if len(clubs) == 2 and current and re.search(r"\d+:\d+|-:-", text):
-            rows.append({"date": current, "home_slug": clubs[0][0], "tm_home_id": clubs[0][1],
-                         "away_slug": clubs[1][0], "tm_away_id": clubs[1][1]})
-    return pd.DataFrame(rows, columns=["date", "home_slug", "tm_home_id", "away_slug", "tm_away_id"]).drop_duplicates()
+    rows = []
+    for box in soup.select("div.box"):
+        hl = box.select_one("h2")
+        phase = _phase(hl.get_text(" ", strip=True) if hl else "")
+        current, kickoff, rnd, leg = None, None, phase, None
+        for tr in box.select("table tbody tr"):
+            text = tr.get_text(" ", strip=True)
+            clubs = []
+            for a in tr.select("a[href*='/verein/']"):
+                cm = CLUB_RE.search(a["href"])
+                if cm and (not clubs or clubs[-1][1] != int(cm.group(2))):
+                    clubs.append((cm.group(1), int(cm.group(2)), a.get("title") or a.get_text(strip=True)))
+            m = DATETIME_RE.search(text)
+            if len(clubs) < 2:      # Zwischenzeile: Runde und/oder Termin
+                ko = KO_RE.search(text) if not phase else None
+                if ko and not m:
+                    rnd, leg = ko.group(1), (f"{ko.group(2)}spiel" if ko.group(2) else None)
+                if m:
+                    current = datetime.strptime(m.group(1), "%d.%m.%Y").date().isoformat()
+                    kickoff = m.group(2)
+                continue
+            if m:                   # ältere Seiten: Datum in der Spielzeile, ohne Uhrzeit
+                d = datetime.strptime(m.group(1), "%d.%m.%Y").date().isoformat()
+                if d != current:
+                    current, kickoff = d, m.group(2)
+            # Spielzeile: zwei verschiedene Vereine und ein Ergebnis/Uhrzeit-Feld
+            if len(clubs) == 2 and current and re.search(r"\d+:\d+|-:-", text):
+                link = tr.select_one("a[href*='/spielbericht/']")
+                mid = re.search(r"/spielbericht/(\d+)", link["href"]) if link else None
+                score = SCORE_RE.match(link.get_text(strip=True)) if link else None
+                rows.append({"date": current, "kickoff": kickoff, "round": rnd, "leg": leg,
+                             "home_slug": clubs[0][0], "tm_home_id": clubs[0][1], "home_name": clubs[0][2],
+                             "away_slug": clubs[1][0], "tm_away_id": clubs[1][1], "away_name": clubs[1][2],
+                             "tm_match_id": int(mid.group(1)) if mid else None,
+                             "hg": int(score.group(1)) if score else None, "ag": int(score.group(2)) if score else None})
+    cols = ["date", "kickoff", "round", "leg", "home_slug", "tm_home_id", "home_name", "away_slug", "tm_away_id",
+            "away_name", "tm_match_id", "hg", "ag"]
+    df = pd.DataFrame(rows, columns=cols).drop_duplicates(["date", "tm_home_id", "tm_away_id"])
+    return add_matchdays(df)
+
+
+def add_matchdays(df: pd.DataFrame) -> pd.DataFrame:
+    """Spieltag der Liga-/Gruppenphase aus Terminblöcken (neuer Block nach > MATCHDAY_GAP_DAYS Tagen)."""
+    df = df.assign(matchday=pd.NA)
+    grp = df["round"].isin(["Ligaphase", "Gruppenphase"])
+    if grp.any():
+        days = pd.Series(sorted(pd.to_datetime(df.loc[grp, "date"]).unique()))
+        md = (days.diff().dt.days.fillna(0) > MATCHDAY_GAP_DAYS).cumsum() + 1
+        lookup = dict(zip(days.dt.strftime("%Y-%m-%d"), md))
+        df.loc[grp, "matchday"] = df.loc[grp, "date"].map(lookup)
+    return df
 
 
 def ingest(con: sqlite3.Connection, seasons: list[int] | None = None,
            fetcher: Fetcher | None = None) -> pd.DataFrame:
-    con.executescript(SCHEMA)
+    ensure_schema(con)
     fetcher = fetcher or Fetcher("transfermarkt", min_interval=5.0)
     current = config.current_season()
     summary = []
@@ -91,9 +157,37 @@ def ingest(con: sqlite3.Connection, seasons: list[int] | None = None,
             except FileNotFoundError:
                 continue
             df = parse(html).assign(competition=code, season=season)
+            if df.empty:     # Layout geändert o.ä.: nichts löschen, Bestand behalten
+                log.warning("Keine Spiele erkannt: %s %s", code, season)
+                continue
+            # Seite = vollständiger Stand der Saison: verlegte oder entfallene Spiele nicht stehen lassen
+            keep = {(d, h, a) for d, h, a in zip(df.date, df.tm_home_id, df.tm_away_id)}
+            old = con.execute("SELECT date, tm_home_id, tm_away_id FROM europe_matches "
+                              "WHERE competition = ? AND season = ?", (code, season)).fetchall()
+            con.executemany("DELETE FROM europe_matches WHERE competition = ? AND season = ? AND date = ? "
+                            "AND tm_home_id = ? AND tm_away_id = ?",
+                            [(code, season, *k) for k in old if tuple(k) not in keep])
             db.upsert(con, "europe_matches", df, key=["competition", "season", "date", "tm_home_id", "tm_away_id"])
             summary.append({"competition": code, "season": season, "matches": len(df)})
     return pd.DataFrame(summary)
+
+
+def fetch_images(con: sqlite3.Connection, season: int, fetcher: Fetcher | None = None) -> int:
+    """Wappen der Vereine einer Europapokal-Saison und Wettbewerbs-Logos, einmalig gecacht."""
+    from fussball.ingest.transfermarkt import IMG_BASE, crest_name, logo_name
+    fetcher = fetcher or Fetcher("transfermarkt", min_interval=2.0)
+    ids = [r[0] for r in con.execute("""SELECT tm_home_id FROM europe_matches WHERE season = ?
+                                        UNION SELECT tm_away_id FROM europe_matches WHERE season = ?""",
+                                     (season, season))]
+    todo = [(f"{IMG_BASE}/logo/homepageWappen150x150/{code.lower()}.png", logo_name(code)) for code in COMPETITIONS]
+    todo += [(f"{IMG_BASE}/wappen/medium/{i}.png", crest_name(i)) for i in ids]
+    new = [(u, n) for u, n in todo if not fetcher.cached(n)]
+    for url, name in new:
+        try:
+            fetcher.get(url, name)
+        except FileNotFoundError:
+            log.warning("Bild fehlt: %s", url)
+    return len(new)
 
 
 def _tokens(s: str) -> set[str]:

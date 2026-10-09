@@ -48,6 +48,10 @@ def cmd_ingest(args) -> int:
             n = teams.append_seed(sugg)
             print(f"{n} neue Namensvorschläge in {teams.SEED_MAP} – prüfen und erneut laden.")
         bad = []
+    elif args.source == "other-leagues":
+        from fussball.ingest import other_leagues
+        _print(other_leagues.ingest(con))
+        bad = []
     elif args.source == "clubelo":
         from fussball.ingest import clubelo
         teams.sync_seed_map(con)
@@ -132,6 +136,11 @@ def cmd_backtest(args) -> int:
                    test_from=args.test_from)
 
 
+def cmd_backtest_europe(args) -> int:
+    from fussball.backtest import europe as bt
+    return bt.main(db.connect(), tune_params=args.tune)
+
+
 def cmd_predict(args) -> int:
     from datetime import date
     from fussball import predict
@@ -142,6 +151,12 @@ def cmd_predict(args) -> int:
         if failed:
             print(f"WARNUNG: Auffrischen fehlgeschlagen ({', '.join(failed)}) – Vorhersage mit gecachten Daten.")
     today = date.fromisoformat(args.date) if args.date else None
+    from fussball import predict_europe
+    eu = predict_europe.predict(con, today=today)
+    for r in eu.sort_values(["competition", "date"]).itertuples():
+        print(f"  {r.competition:<4} {r.date}  {r.home_name:>26} {r.tip_h}:{r.tip_a} {r.away_name:<26}"
+              f"  1/X/2 {r.p_h:4.0%} {r.p_d:4.0%} {r.p_a:4.0%}")
+    print(f"{len(eu)} Europapokal-Vorhersagen gespeichert.")
     out = predict.predict(con, today=today, leagues=_leagues(args.leagues))
     if out.empty:
         print("Keine anstehenden Spiele im Spielplan.")
@@ -188,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("ingest", help="Daten laden (idempotent, mit Cache)")
-    s.add_argument("source", choices=["football-data", "understat", "clubelo", "europe", "squad-values"])
+    s.add_argument("source", choices=["football-data", "understat", "clubelo", "europe", "squad-values", "other-leagues"])
     s.add_argument("--leagues", help="z.B. E0,D1 (Default: alle)")
     s.add_argument("--seasons", help="Startjahre, z.B. 2014-2026 oder 2024,2025")
     s.add_argument("--suggest", action="store_true",
@@ -221,6 +236,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("check", help="Datenqualitäts-Checks")
     s.set_defaults(func=cmd_check)
 
+    s = sub.add_parser("backtest-europe", help="Walk-forward-Backtest für CL, EL und Conference League")
+    s.add_argument("--tune", action="store_true", help="Parameter auf 2016–2018 neu wählen")
+    s.set_defaults(func=cmd_backtest_europe)
     s = sub.add_parser("backtest", help="Walk-forward-Backtest der Dixon-Coles-Baseline")
     s.add_argument("--leagues", help="z.B. E0,D1 (Default: Top 5)")
     s.add_argument("--xi", type=float, help="Time-Decay pro Tag (Default: getunter Wert)")

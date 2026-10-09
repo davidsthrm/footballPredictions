@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 from fussball import config, db, insights, predict, season, teams
-from fussball import dashboard_views as views
+from fussball import dashboard_europe, dashboard_fx as fx, dashboard_views as views
 from fussball.features import availability
 from fussball.ingest import europe, transfermarkt
 
@@ -293,7 +293,54 @@ def chips(items: list[tuple[str, str]]) -> str:
         for anchor, lg in items) + "</nav>"
 
 
-def match_row(r, ctx: Ctx, provisional: bool) -> str:
+DERBIES = {frozenset(pair): name for pair, name in [
+    (("bayern-munich", "dortmund"), "Der Klassiker"), (("dortmund", "schalke-04"), "Revierderby"),
+    (("hamburg", "werder-bremen"), "Nordderby"), (("fc-koln", "m-gladbach"), "Rheinisches Derby"),
+    (("hertha", "union-berlin"), "Hauptstadtderby"), (("stuttgart", "karlsruhe"), "Baden-Württemberg-Derby"),
+    (("real-madrid", "barcelona"), "El Clásico"), (("ath-madrid", "real-madrid"), "Madrider Derby"),
+    (("barcelona", "espanol"), "Derbi barceloní"), (("sevilla", "betis"), "Gran Derbi"),
+    (("inter", "milan"), "Derby della Madonnina"), (("roma", "lazio"), "Derby della Capitale"),
+    (("juventus", "torino"), "Derby della Mole"), (("juventus", "inter"), "Derby d'Italia"),
+    (("genoa", "sampdoria"), "Derby della Lanterna"), (("arsenal", "tottenham"), "North London Derby"),
+    (("liverpool", "everton"), "Merseyside-Derby"), (("man-united", "man-city"), "Manchester-Derby"),
+    (("man-united", "liverpool"), "Nordwest-Derby"), (("newcastle", "sunderland"), "Tyne-Wear-Derby"),
+    (("paris-sg", "marseille"), "Le Classique"), (("lyon", "st-etienne"), "Derby du Rhône"),
+    (("nice", "monaco"), "Derby de la Côte d'Azur"), (("lens", "lille"), "Derby du Nord"),
+    (("celtic", "rangers"), "Old Firm"), (("ajax", "feyenoord"), "De Klassieker"),
+    (("benfica", "sp-lisbon"), "Derby de Lisboa"), (("benfica", "porto"), "O Clássico"),
+    (("galatasaray", "fenerbahce"), "Kıtalararası Derbi")]}
+BANKER_MIN = 0.70   # ab dieser Tendenz-Wahrscheinlichkeit gilt ein Tipp als „Banker“ 🔥
+
+
+def derby(home_id: str, away_id: str) -> str:
+    return DERBIES.get(frozenset((home_id, away_id)), "")
+
+
+def row_tags(home_id: str, away_id: str) -> str:
+    """Zusatzzeile unter einer Spielzeile (Derbys), leer wenn nichts Besonderes."""
+    d = derby(home_id, away_id)
+    return f"<span class='tags'><span class='derby'>⚔️ {escape(d)}</span></span>" if d else ""
+
+
+def prob_cell(p: float) -> str:
+    banker = p >= BANKER_MIN
+    return (f"<span class='pr{' banker' if banker else ''}'{' title=Banker' if banker else ''}>"
+            f"{'<i>🔥</i>' if banker else ''}{_pct(p)}</span>")
+
+
+def game_info(*parts: str) -> str:
+    return "<p class='ginfo'>🗓️ " + " · ".join(p for p in parts if p) + "</p>"
+
+
+def league_matchday(res: pd.DataFrame | None, league: str, season: int, teams_: tuple[str, str], day) -> int | None:
+    """Spieltag = 1 + meiste bisher gespielte Ligaspiele der beiden Teams (Nachholspiele inklusive)."""
+    if res is None:
+        return None
+    r = res[(res.league == league) & (res.season == season) & (res.date < pd.Timestamp(day))]
+    return 1 + max(int(((r.home == t) | (r.away == t)).sum()) for t in teams_)
+
+
+def match_row(r, ctx: Ctx, provisional: bool, md: int | None = None) -> str:
     """Eine Zeile je Spiel (Anstoß, Teams, Tipp, Tendenz-Wahrscheinlichkeit); Details per Antippen."""
     _, time = _kickoff(r.kickoff_utc)
     home, away = ctx.names.get(r.home_id, r.home_id), ctx.names.get(r.away_id, r.away_id)
@@ -316,7 +363,10 @@ def match_row(r, ctx: Ctx, provisional: bool) -> str:
     notes += [f"🌍 {n}" for n in (europe_note(ctx, t, nm, r.date) for t, nm in ((r.home_id, home), (r.away_id, away))) if n]
     facts = (insights.match_facts(ctx.res, ctx.players, r.home_id, r.away_id, r.date, r.season, ctx.names,
                                   r.lam_h, r.lam_a, ctx.totals or {}) if ctx.res is not None else [])
-    det = (outcome_strip(r.p_h, r.p_d, r.p_a, pick)
+    day_txt, _ = _kickoff(r.kickoff_utc)
+    info = game_info(f"{md}. Spieltag" if md else "", config.LEAGUES[r.league].name,
+                     f"{day_txt}, {time}{' (vorläufig)' if provisional else ' Uhr'}", derby(r.home_id, r.away_id))
+    det = (info + outcome_strip(r.p_h, r.p_d, r.p_a, pick)
            + f"<table class='dt'><thead><tr><th></th><th>{crest(r.home_id, ctx.crests, home)}{escape(home)}</th>"
              f"<th>{crest(r.away_id, ctx.crests, away)}{escape(away)}</th></tr></thead><tbody>{''.join(trs)}</tbody></table>"
            + "<ul class='notes'>" + "".join(f"<li>{n}</li>" for n in notes if n)
@@ -327,9 +377,9 @@ def match_row(r, ctx: Ctx, provisional: bool) -> str:
 <label for="m{uid}" class="row" aria-label="{escape(home)} gegen {escape(away)}, Tipp {th}:{ta}, {escape(text)}">
 <span class="ko">{time}{'*' if provisional else ''}</span>
 <span class="tm h{hcls}"><span class="nm">{escape(home)}</span>{crest(r.home_id, ctx.crests, home)}</span>
-<span class="tip">{th}:{ta}</span>
+<span class="tip{' zz' if th == ta == 0 else ''}">{th}:{ta}</span>
 <span class="tm a{acls}">{crest(r.away_id, ctx.crests, away)}<span class="nm">{escape(away)}</span></span>
-<span class="pr">{_pct(p_tend)}</span></label>
+{prob_cell(p_tend)}{row_tags(r.home_id, r.away_id)}</label>
 <div class="det">{det}</div></div>"""
 
 
@@ -341,9 +391,12 @@ def provisional_leagues(pred: pd.DataFrame) -> set[str]:
 def league_section(lg: str, g: pd.DataFrame, ctx: Ctx, provisional: bool) -> str:
     name = config.LEAGUES[lg].name
     g = g.assign(day=g.kickoff_utc.map(_local_day)).sort_values(["kickoff_utc", "home_id"])
-    body = "".join(f"<h3 class='day'>{_day_title(day)}</h3>" + "".join(match_row(r, ctx, provisional)
-                                                                      for r in dg.itertuples())
-                   for day, dg in g.groupby("day", sort=True))
+    g["md"] = [league_matchday(ctx.res, lg, r.season, (r.home_id, r.away_id), r.date) for r in g.itertuples()]
+    body = ""
+    for day, dg in g.groupby("day", sort=True):
+        md = dg.md.mode().iloc[0] if dg.md.notna().any() else None
+        body += (f"<h3 class='day'>{_day_title(day)}{f' · {int(md)}. Spieltag' if md else ''}</h3>"
+                 + "".join(match_row(r, ctx, provisional, r.md) for r in dg.itertuples()))
     note = "<p class='muted small'>* Anstoßzeit steht noch nicht fest</p>" if provisional else ""
     return (f"<section id='{lg}' class='league' style='--lg:{THEMES[lg].primary}'>"
             f"<h2><span class='logo lg-{lg}'></span>{escape(name)}</h2>{body}{note}</section>")
@@ -432,14 +485,15 @@ border:1px solid var(--line);background:var(--surface);border-radius:999px;paddi
 /* Reiter */
 .vt,.tg{position:absolute;opacity:0;pointer-events:none;width:0;height:0}
 .tabs{display:flex;gap:6px;position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 0;margin-top:12px;
-border-bottom:1px solid var(--line)}
-.tabs label{flex:1;text-align:center;padding:8px 4px;font-size:13px;font-weight:600;border-radius:10px;cursor:pointer;
+border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}
+@media (max-width:440px){.tabs .ei{display:none}.tabs label{padding:8px 6px!important}}
+.tabs label{flex:1 0 auto;text-align:center;padding:8px 10px;font-size:13px;font-weight:600;border-radius:10px;cursor:pointer;
 border:1px solid var(--line);background:var(--surface);color:var(--text);white-space:nowrap}
-#t-spiele:checked~.tabs label[for=t-spiele],#t-erg:checked~.tabs label[for=t-erg],
+#t-spiele:checked~.tabs label[for=t-spiele],#t-eu:checked~.tabs label[for=t-eu],#t-erg:checked~.tabs label[for=t-erg],
 #t-tab:checked~.tabs label[for=t-tab],#t-fakt:checked~.tabs label[for=t-fakt]{background:var(--text);color:var(--bg);
 border-color:var(--text)}
 .view{display:none}
-#t-spiele:checked~.views .v-spiele,#t-erg:checked~.views .v-erg,#t-tab:checked~.views .v-tab,
+#t-spiele:checked~.views .v-spiele,#t-eu:checked~.views .v-eu,#t-erg:checked~.views .v-erg,#t-tab:checked~.views .v-tab,
 #t-fakt:checked~.views .v-fakt{display:block}
 /* Liga-Navigation */
 .chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0 2px;scrollbar-width:none}
@@ -558,11 +612,15 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
     bt = pd.read_csv(config.REPORT_DIR / "backtest_predictions.csv") if (config.REPORT_DIR / "backtest_predictions.csv").exists() else None
     facts = insights.weekly_facts(res, players, bt, names, season_, today)
 
+    europa, eu_crests = dashboard_europe.europe_view(con, ctx, today)
     shown_teams = (set(pred.home_id) | set(pred.away_id) | set(proj.team_id) | set(played.home_id)
                    | set(played.away_id) | {k for f in facts if f.kind == "team" for k, _ in f.ranking})
     img_css = [_img_css(f"c{crests[t]}", IMG_DIR / transfermarkt.crest_name(crests[t]))
                for t in sorted(shown_teams) if t in crests]
-    img_css += [_img_css(f"lg-{lg}", IMG_DIR / transfermarkt.logo_name(lg)) for lg in config.TOP_LEAGUES]
+    img_css += [_img_css(f"c{i}", IMG_DIR / transfermarkt.crest_name(i))
+                for i in sorted(eu_crests - {crests[t] for t in shown_teams if t in crests})]
+    img_css += [_img_css(f"lg-{lg}", IMG_DIR / transfermarkt.logo_name(lg))
+                for lg in [*config.TOP_LEAGUES, *dashboard_europe.COMPETITIONS]]
 
     leagues = [lg for lg in config.TOP_LEAGUES if (pred.league == lg).any()]
     if leagues:
@@ -572,7 +630,7 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
     else:
         games = "<p class='muted'>Keine Vorhersagen vorhanden – erst <code>fussball predict</code> ausführen.</p>"
     results = views.results_view(played, ctx, live_summary(sc) + ab_test(sc_all, model))
-    fakten = views.facts_view(facts, ctx) + model_section(model_comparison(), model)
+    fakten = views.facts_view(facts, ctx) + model_section(model_comparison(), model) + dashboard_europe.model_note()
 
     if len(pred):
         days = sorted(pred.kickoff_utc.map(_local_day))
@@ -586,17 +644,20 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
         title, stamp, results_until = "– noch keiner geplant", "", "–"
     return f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark">
-<title>Dein Tippspiel-Assistent</title><style>{font_css()}{CSS}{views.CSS}{''.join(img_css)}</style></head><body><main>
-<header class="top"><div class="headrow"><h1>Dein Tippspiel-Assistent</h1>
-<a class="refresh" href="tippspiel://refresh" title="Startet den Lauf auf dem Mac (ca. 10 Min.)">↻ Jetzt aktualisieren</a></div><p>⚽ <b>Spieltag {escape(title)}</b>{' · ' + stamp if stamp else ''}</p></header>
-<input type="radio" name="view" id="t-spiele" class="vt" checked><input type="radio" name="view" id="t-erg" class="vt">
+<title>Dein Tippspiel-Assistent</title><style>{font_css()}{CSS}{views.CSS}{dashboard_europe.CSS}{fx.CSS}{''.join(img_css)}</style></head><body><main>
+{fx.eggs_inputs()}{fx.seasonal(today)}
+<header class="top"><div class="headrow">{fx.title()}
+<a class="refresh" href="tippspiel://refresh" title="Startet den Lauf auf dem Mac (ca. 10 Min.)">↻ Jetzt aktualisieren</a></div><p>{fx.ball_label(today)} <b>Spieltag {escape(title)}</b>{' · ' + stamp if stamp else ''}</p>{fx.goal_fx()}</header>
+<input type="radio" name="view" id="t-spiele" class="vt" checked><input type="radio" name="view" id="t-eu" class="vt">
+<input type="radio" name="view" id="t-erg" class="vt">
 <input type="radio" name="view" id="t-tab" class="vt"><input type="radio" name="view" id="t-fakt" class="vt">
-<div class="tabs"><label for="t-spiele">📅 Spiele</label><label for="t-erg">✅ Ergebnisse</label>
-<label for="t-tab">🏆 Tabelle</label><label for="t-fakt">💡 Fakten</label></div>
-<div class="views"><div class="view v-spiele">{games}</div><div class="view v-erg">{results}</div>
+<div class="tabs"><label for="t-spiele"><span class="ei">📅 </span>Spiele</label><label for="t-eu"><span class="ei">🌍 </span>Europa</label><label for="t-erg"><span class="ei">✅ </span>Ergebnisse</label>
+<label for="t-tab"><span class="ei">🏆 </span>Tabelle</label><label for="t-fakt"><span class="ei">💡 </span>Fakten</label></div>
+<div class="views"><div class="view v-spiele">{games}</div><div class="view v-eu">{europa}</div>
+<div class="view v-erg">{results}</div>
 <div class="view v-tab">{views.table_view(proj, ctx)}</div><div class="view v-fakt">{fakten}</div></div>
 <footer>Ergebnisse bis {results_until} · Ausfälle vom {pd.Timestamp(snap).strftime('%d.%m.') if snap else '–'} ·
-ohne Wettquoten · Wappen und Logos: Transfermarkt, nur privat</footer>
+ohne Wettquoten · Wappen und Logos: Transfermarkt, nur privat {fx.stadium_label()}</footer>
 </main></body></html>"""
 
 

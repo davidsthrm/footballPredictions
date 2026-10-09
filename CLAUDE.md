@@ -32,10 +32,12 @@ uv run fussball ingest understat [--suggest]   # xG; --suggest schlägt Teamname
 uv run fussball ingest clubelo [--suggest]     # Elo-Historien der gemappten Vereine
 uv run fussball ingest europe [--suggest]      # Europapokal-Termine (Transfermarkt)
 uv run fussball ingest squad-values [--suggest] # Kaderwerte abgeschlossener Saisons (1. + 2. Ligen)
+uv run fussball ingest other-leagues           # 16 weitere Ligen (NED, POR, TUR, AUT, …) für das Europa-Modell
 uv run fussball snapshot transfermarkt         # täglicher Snapshot Verletzungen/Sperren
 uv run fussball teams                          # data_seed/team_name_map.csv -> DB
 uv run fussball check [-v]                     # Datenqualität, Exit 1 bei ERROR
 uv run fussball backtest [--tune]              # Walk-forward + Report in data/reports/
+uv run fussball backtest-europe [--tune]       # Walk-forward CL/EL/ECL -> europe_params.json, tip_weights_eu.json
 uv run fussball predict [--no-refresh]         # nächster Spieltag -> predictions + JSON
 uv run fussball scorecard                      # echte Trefferbilanz
 uv run fussball dashboard                      # data/dashboard/index.html (+ FUSSBALL_DASHBOARD_COPY)
@@ -69,6 +71,21 @@ Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tip
   der Validierung (model_params.json → "ensemble"); Test: ΔLog-Loss −0,0005 (signifikant).
   LightGBM-Runden per Early Stopping gemittelt über alle Validierungssaisons (nicht eine).
   Regel: Varianten nie nachträglich nach Testergebnis auswählen.
+- Europapokal (CL, EL, Conference League): `ingest/europe.py` liest aus den Transfermarkt-
+  Gesamtspielplänen auch Ergebnisse und Namen (keine Anstoßzeiten, Verlängerung nicht markiert);
+  `ingest/other_leagues.py` holt 16 weitere Ligen (nur Datum/Teams/Tore, Tabelle other_matches);
+  `models/europe.py` ein gemeinsamer Dixon-Coles über alle Ligen + Europapokal (Heimvorteil je
+  Wettbewerb, Europapokal-Spiele verbinden die Ligen; Vereine ohne Ligadaten als `tm-<id>`).
+  Vereine über TM-ID gemappt (geprüfte Vorschläge in der Seed-Map, Zypern & Co. bewusst nicht).
+  Backtest (`backtest/europe.py`, Tuning 2016–2018): Test ab 2019/20, 2.895 Spiele, Tendenz 52,2 %,
+  exakt 10,5 %, 1,35 Punkte; nur Heimvorteil 39,2 % / 1,05; weitere Ligen ΔLog-Loss −0,021 (z −3,4).
+  Live: `predict_europe.py` (Tabelle europe_predictions, append-only; angepfiffene Spiele nicht neu
+  tippen – Anstoßzeit aus den Kopfzeilen der Transfermarkt-Seite, sobald angesetzt),
+  Dashboard-Reiter „Europa“ (`dashboard_europe.py`, Farben je Wettbewerb in THEMES).
+  `ingest/europe.py` speichert je Spiel Runde (Ligaphase/K.-o.-Runde, Hin-/Rückspiel), Spieltag
+  (aus Terminblöcken) und Anstoß; Spiele, die nicht mehr auf der Seite stehen (verlegt), werden gelöscht.
+  `tournament.py`: Turnierprognose (10.000 Simulationen der Ligaphase + K.-o.-Baum nach UEFA-Setzliste,
+  Format ab 2024/25), im Dashboard als Baum + Titelchancen, nur solange die Ligaphase läuft.
 - `backtest/` Walk-forward, Metriken, Report, Benchmark; Parameter in
   data/reports/model_params.json (per `backtest --tune` nur auf Validierung gewählt),
   Live-LightGBM in data/reports/lgbm_model.txt (bei jedem `backtest` neu trainiert).
@@ -95,7 +112,9 @@ Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tip
   Tabelle/Fakten mit Liga-Sprungknöpfen; Spiele und Ergebnisse je Liga und Tag gruppiert, eine
   Zeile pro Spiel, Details (1X2, Vergleichstabelle Heim/Auswärts, Hinweise, Matrix) erst nach
   Antippen. Emojis sparsam als Icons (Fakten, Detail-Zeilen, Punkte), keine Schatten/Verläufe,
-  Texte sachlich.
+  Texte sachlich. Spielinfo je Spiel (Spieltag aus Zahl der Ligaspiele, Derbys in `dashboard.DERBIES`,
+  „Banker“ 🔥 ab 70 % Tendenz). Animationen und Easter Eggs nur per CSS in `dashboard_fx.py`
+  (⚽ im Kopf, Titel 3× antippen, 🏟️ in der Fußzeile, Pokal im Baum; aus bei „Bewegung reduzieren“).
 - Anzeigenamen deutsch über `data_seed/team_display_names.csv` (Aufsteiger ergänzen);
   Liga-Farben in `dashboard.THEMES`; Wappen/Logos von Transfermarkt, einmalig gecacht
   unter data/raw/transfermarkt/{crests,logos}/ und base64 eingebettet.

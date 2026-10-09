@@ -46,7 +46,7 @@ def test_views_tabs_and_unique_ids(con):
     db.upsert(con, "predictions", rows, key=["model", "understat_match_id", "cutoff_date"])
     html = dashboard.render(con, today=date(2026, 10, 9))
     assert 'id="t-spiele" class="vt" checked' in html
-    for tab in ("t-erg", "t-tab", "t-fakt"):
+    for tab in ("t-eu", "t-erg", "t-tab", "t-fakt"):
         assert f'for="{tab}"' in html
     assert "Samstag, 10. Oktober" in html and "Sonntag, 11. Oktober" in html
     assert ">2:0<" in html and "Sieg Alpha" in html                       # Tipp und Sieger benannt

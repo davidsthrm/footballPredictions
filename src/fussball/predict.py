@@ -74,13 +74,15 @@ def refresh(con: sqlite3.Connection, max_age_h: float = 3.0) -> list[str]:
     """
     import logging
     from fussball import teams
-    from fussball.ingest import football_data, understat
+    from fussball.ingest import football_data, other_leagues, understat
     season = [config.current_season()]
     failed = []
     for name, step in (("football-data", lambda: football_data.ingest(con, seasons=season, max_age_h=max_age_h)),
                        ("understat", lambda: (teams.sync_seed_map(con),
                                               understat.ingest(con, seasons=season, max_age_h=max_age_h))),
-                       ("europapokal", lambda: europe.ingest(con, seasons=season))):
+                       ("europapokal", lambda: (europe.ingest(con, seasons=season),
+                                                europe.fetch_images(con, season[0]))),
+                       ("weitere Ligen", lambda: other_leagues.ingest(con, seasons=season))):
         try:
             step()
         except Exception as e:  # noqa: BLE001 – Netz/Quelle nicht erreichbar: mit Cache weiter
