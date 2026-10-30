@@ -20,7 +20,9 @@ Modellauswahl über Log-Loss auf der Ergebnismatrix (Trefferquote ist zu verraus
   Zusätzliche Dependencies nur mit Begründung.
 - **Höflich scrapen:** `fussball.http.Fetcher` benutzen (Rate-Limit, eigener User-Agent,
   Cache unter `data/raw/`, nie doppelt abrufen). Bei 403/Bot-Schutz abbrechen, nichts
-  umgehen (keine Proxies, keine gefälschten Browser-Header).
+  umgehen (keine Proxies, keine gefälschten Browser-Header). Bot-Prüfungen (202, AWS WAF
+  `x-amzn-waf-action`) erkennt der Fetcher als `BlockedError` und speichert sie nicht.
+  Transfermarkt antwortet seit 2026-10-21 mit einer AWS-WAF-Prüfung (Ausfälle, Europapokal-Spielpläne).
 - Secrets (`CLOUDFLARE_API_TOKEN`) nur in `.env`, nie committen.
 
 ## Befehle
@@ -62,7 +64,7 @@ Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tip
   als Hinweis („Europapokal vor/in n Tagen“); als Modell-Feature verworfen (siehe unten).
 - `features/availability.py` Ausfall-Gewicht je Team: Anteil fehlender Minuten / xG+xA /
   Defensivminuten (Understat-Spielerdaten, Tabelle player_season_stats) aus dem letzten
-  Snapshot vor dem Spieltag. Anpassung der Raten ist eine NICHT validierte Schätzung
+  Snapshot vor dem Spieltag (höchstens 7 Tage alt, sonst keine Anpassung). Anpassung der Raten ist eine NICHT validierte Schätzung
   (keine Ausfall-Historie vor 2026-09-29): `predict` speichert jede Vorhersage doppelt
   (Modell mit Suffix ` +ausfaelle` und ohne) → Live-A/B im Dashboard. Sobald genug
   Snapshots vorliegen, Ausfälle datenbasiert ins LightGBM übernehmen.

@@ -55,9 +55,13 @@ def test_team_absences_uses_last_snapshot_before_match(con):
         snap("2026-10-01", 2, "Ben Bank", "2026-10-03"),          # vor dem Spiel zurück
         snap("2026-10-12", 3, "Tom Keeper", None)],               # Snapshot nach dem Spieltag
         key=["snapshot_date", "tm_club_id", "tm_player_id", "category"])
-    per_team, players = av.team_absences(con, "2026-10-10", 2026)
+    per_team, players = av.team_absences(con, "2026-10-06", 2026)
     assert players.player.tolist() == ["Max Stürmer"]
     assert per_team.missing_att.iloc[0] == pytest.approx(6.0 / 11.0)
+    # Snapshot älter als MAX_SNAPSHOT_AGE_DAYS (z.B. weil die Abrufe gescheitert sind): ignorieren
+    assert len(av.team_absences(con, "2026-10-08", 2026)[0]) == 1
+    per_team, players = av.team_absences(con, "2026-10-09", 2026)
+    assert per_team.empty and players.empty
 
 
 def test_squad_values_use_previous_season_only(con):
