@@ -4,7 +4,6 @@ import pytest
 
 from fussball import db, teams
 from fussball.features import availability as av
-from fussball.features import form
 from fussball.ingest import europe
 
 EUROPE_HTML = """<html><body><div class="box"><table><tbody>
@@ -22,17 +21,6 @@ def test_europe_parser_dates_and_clubs():
     df = europe.parse(EUROPE_HTML)
     assert df[["date", "tm_home_id", "tm_away_id"]].values.tolist() == [
         ["2024-09-17", 506, 383], ["2024-09-18", 281, 46]]   # Tabellenzeile (1 Verein) ignoriert
-
-
-def test_europe_features_point_in_time():
-    data = pd.DataFrame({"match_id": [1, 2], "league": "D1", "season": 2024, "tier": 1, "country": "GER",
-                         "date": pd.to_datetime(["2024-09-14", "2024-09-21"]), "home": ["A", "B"],
-                         "away": ["B", "A"], "hg": [1, 0], "ag": [0, 0], "xg_h": np.nan, "xg_a": np.nan})
-    eu = pd.DataFrame({"team": ["A"], "date": pd.to_datetime(["2024-09-18"])})
-    f = form.build(data, eu).set_index(["match_id", "team"])
-    assert f.loc[(1, "A"), "eu_until"] == 4 and f.loc[(1, "A"), "eu_since"] == form.MAX_REST
-    assert f.loc[(2, "A"), "eu_since"] == 3 and f.loc[(2, "A"), "eu_14d"] == 1
-    assert f.loc[(2, "A"), "rest_all"] == 3 and f.loc[(2, "B"), "eu_14d"] == 0
 
 
 @pytest.mark.parametrize("tm,expected", [("Vinícius Júnior", 0), ("Christian Nørgaard", 1),

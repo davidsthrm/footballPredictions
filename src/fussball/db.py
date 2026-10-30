@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS teams (
     country   TEXT NOT NULL
 );
 
--- Vereinheitlicht Teamnamen über alle Quellen (football-data, understat, clubelo, transfermarkt)
+-- Vereinheitlicht Teamnamen über alle Quellen (football-data, understat, transfermarkt)
 CREATE TABLE IF NOT EXISTS team_name_map (
     source      TEXT NOT NULL,
     source_name TEXT NOT NULL,
@@ -64,16 +64,6 @@ CREATE TABLE IF NOT EXISTS team_xg (
     PRIMARY KEY (understat_match_id, team_id)
 );
 CREATE INDEX IF NOT EXISTS ix_team_xg_team_date ON team_xg(team_id, date);
-
--- ClubElo: Rating gilt im Intervall [valid_from, valid_to]
-CREATE TABLE IF NOT EXISTS elo (
-    team_id    TEXT NOT NULL REFERENCES teams(team_id),
-    valid_from TEXT NOT NULL,
-    valid_to   TEXT NOT NULL,
-    elo        REAL NOT NULL,
-    level      INTEGER,
-    PRIMARY KEY (team_id, valid_from)
-);
 
 -- NUR Evaluations-Benchmark. Niemals in Feature-/Fit-Daten joinen.
 CREATE TABLE IF NOT EXISTS odds_benchmark (

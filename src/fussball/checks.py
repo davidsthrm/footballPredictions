@@ -109,33 +109,9 @@ def check_unmapped(con) -> list[Result]:
     if len(tm):
         out.append(Result("ERROR", "teamnamen", "Transfermarkt-Vereine ohne Mapping: "
                           + ", ".join(f"{r.tm_club_name} ({r.league})" for r in tm.itertuples())))
-    cur = config.current_season()
-    elo_missing = db.read(con, f"""SELECT DISTINCT m.league, t.name FROM matches m
-                                  JOIN teams t ON t.team_id IN (m.home_id, m.away_id)
-                                  WHERE m.season >= ? AND m.league IN ({",".join("?" * len(config.TOP_LEAGUES))})
-                                  AND t.team_id NOT IN (SELECT team_id FROM team_name_map WHERE source = 'clubelo')""",
-                          [cur - 1] + config.TOP_LEAGUES)
-    if len(elo_missing):
-        out.append(Result("WARN", "teamnamen", f"{len(elo_missing)} Top-5-Teams (seit {cur - 1}) ohne ClubElo-Mapping, "
-                          "z.B. " + ", ".join(elo_missing.name.head(8))))
     if not out:
         out.append(Result("OK", "teamnamen", "alle Namen gemappt"))
     return out
-
-
-def check_elo(con) -> list[Result]:
-    df = db.read(con, f"""SELECT m.league, COUNT(*) n, SUM(e.team_id IS NULL) missing FROM matches m
-                         LEFT JOIN elo e ON e.team_id = m.home_id AND date(m.date, '-1 day')
-                              BETWEEN e.valid_from AND e.valid_to
-                         WHERE m.league IN ({",".join("?" * len(config.TOP_LEAGUES))}) GROUP BY 1""",
-                  config.TOP_LEAGUES)
-    if not con.execute("SELECT COUNT(*) FROM elo").fetchone()[0]:
-        return [Result("WARN", "elo", "keine Elo-Daten geladen (fussball ingest clubelo --suggest)")]
-    bad = df[df.missing > 0]
-    if len(bad):
-        return [Result("WARN", "elo", f"{r.league}: {r.missing}/{r.n} Heimteams ohne Elo am Vortag")
-                for r in bad.itertuples()]
-    return [Result("OK", "elo", "Elo am Vortag für alle Top-5-Heimteams vorhanden")]
 
 
 def check_odds(con) -> list[Result]:
@@ -169,7 +145,7 @@ def check_snapshots(con) -> list[Result]:
 
 
 CHECKS = [check_duplicates, check_match_counts, check_schedule_symmetry, check_xg_coverage,
-          check_unmapped, check_elo, check_odds, check_snapshots]
+          check_unmapped, check_odds, check_snapshots]
 
 
 def run(con: sqlite3.Connection, verbose: bool = False) -> int:

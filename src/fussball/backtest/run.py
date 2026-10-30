@@ -23,7 +23,6 @@ import pandas as pd
 
 from fussball import config
 from fussball.backtest import benchmark, metrics, report, walkforward
-from fussball.ingest import europe
 from fussball.features import form
 from fussball.models import lgbm, tipping
 from fussball.models.dixon_coles import score_matrix
@@ -88,9 +87,9 @@ def evaluate(con: sqlite3.Connection, pred: pd.DataFrame, test_from: int) -> tup
 
 
 def lgbm_stage(data: pd.DataFrame, pred: pd.DataFrame, first_eval: int, test_from: int,
-               save_to=None, europe_dates: pd.DataFrame | None = None) -> tuple[pd.DataFrame, int]:
+               save_to=None) -> tuple[pd.DataFrame, int]:
     """Korrigiert die DC-Vorhersagen je Saison mit einem nur auf Vorsaisons trainierten LightGBM."""
-    rows = lgbm.to_team_rows(form.build(data, europe_dates), pred)
+    rows = lgbm.to_team_rows(form.build(data), pred)
     # Runden über alle Validierungssaisons mitteln (jeweils nur mit Vorsaisons trainiert)
     folds = [(rows[rows.season.between(first_eval, v - 1)], rows[rows.season == v])
              for v in range(first_eval + 1, test_from)]
@@ -137,8 +136,7 @@ def main(con: sqlite3.Connection, leagues: list[str] | None = None, xi: float | 
 
     seasons = list(range(first_eval, config.current_season() + 1))
     dc_pred = walkforward.run(data, leagues, seasons, params)
-    stacked, rounds = lgbm_stage(data, dc_pred, first_eval, test_from, save_to=LGBM_FILE,
-                                 europe_dates=europe.team_dates(con))
+    stacked, rounds = lgbm_stage(data, dc_pred, first_eval, test_from, save_to=LGBM_FILE)
     print(f"LightGBM-Korrektur: {rounds} Runden (Early Stopping, gemittelt über "
           f"{first_eval + 1}–{test_from - 1})")
     p, summ = evaluate(con, stacked, test_from)

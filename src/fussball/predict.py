@@ -92,8 +92,7 @@ def refresh(con: sqlite3.Connection, max_age_h: float = 3.0) -> list[str]:
     return failed
 
 
-def lgbm_correct(data: pd.DataFrame, base: pd.DataFrame, corrector: LGBMCorrector,
-                 europe_dates: pd.DataFrame | None = None) -> pd.DataFrame:
+def lgbm_correct(data: pd.DataFrame, base: pd.DataFrame, corrector: LGBMCorrector) -> pd.DataFrame:
     """Wendet die LightGBM-Korrektur auf die DC-Raten der anstehenden Spiele an.
 
     Die Spiele werden als Zeilen ohne Ergebnis an die Historie gehängt; die Features
@@ -105,7 +104,7 @@ def lgbm_correct(data: pd.DataFrame, base: pd.DataFrame, corrector: LGBMCorrecto
         "home": base.home_id.to_numpy(), "away": base.away_id.to_numpy(),
         "hg": np.nan, "ag": np.nan, "xg_h": np.nan, "xg_a": np.nan, "tier": 1,
         "country": base.league.map(lambda c: config.LEAGUES[c].country).to_numpy()})
-    feats = form.build(pd.concat([data, pending], ignore_index=True), europe_dates)
+    feats = form.build(pd.concat([data, pending], ignore_index=True))
     rows = lgbm.to_team_rows(feats[feats.match_id < 0],
                              base.assign(match_id=-base.understat_match_id)[["match_id", "lam_h", "lam_a"]])
     rates = lgbm.match_rates(rows, corrector.rates(rows)).set_index("match_id")
@@ -150,7 +149,7 @@ def predict(con: sqlite3.Connection, today: date | None = None,
         return pd.DataFrame()
     out = pd.DataFrame(base)
     if corrector is not None:
-        out = lgbm_correct(data, out, corrector, europe.team_dates(con))
+        out = lgbm_correct(data, out, corrector)
     variants = [(name, out), (name + AVAIL_SUFFIX, with_absences(con, out))]
     stored = [finish(con, v, n, created, today) for n, v in variants]
     from fussball import season
