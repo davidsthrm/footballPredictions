@@ -83,7 +83,8 @@ Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tip
   exakt 10,5 %, 1,35 Punkte; nur Heimvorteil 39,2 % / 1,05; weitere Ligen ΔLog-Loss −0,021 (z −3,4).
   Live: `predict_europe.py` (Tabelle europe_predictions, append-only; angepfiffene Spiele nicht neu
   tippen – Anstoßzeit aus den Kopfzeilen der Transfermarkt-Seite, sobald angesetzt),
-  Dashboard-Reiter „Europa“ (`dashboard_europe.py`, Farben je Wettbewerb in THEMES).
+  Dashboard-Reiter „Europa“ (`dashboard_europe.py`, Farben je Wettbewerb in THEMES); die gespielten
+  Europapokal-Spiele stehen je Wettbewerb im Reiter „Ergebnisse“ nach den Ligen (`results_sections`).
   `ingest/europe.py` speichert je Spiel Runde (Ligaphase/K.-o.-Runde, Hin-/Rückspiel), Spieltag
   (aus Terminblöcken) und Anstoß; Spiele, die nicht mehr auf der Seite stehen (verlegt), werden gelöscht.
   `tournament.py`: Turnierprognose (10.000 Simulationen der Ligaphase + K.-o.-Baum nach UEFA-Setzliste,
