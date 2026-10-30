@@ -124,8 +124,8 @@ def _result_line(r, ctx) -> str:
             f"{crest(r.tm_home_id, home)}</span><span class='sc'>{int(r.hg)}:{int(r.ag)}</span>"
             f"<span class='tm a{wa}'>{crest(r.tm_away_id, away)}<span class='nm'>{escape(away)}</span></span>"
             f"<span class='tp'>{live}{int(r.tip_h)}:{int(r.tip_a)}</span>"
-            f"<span class='pt p{r.points}' title='{r.points} Punkte'>{PT_ICON[r.points]}<small>{r.points}</small></span>"
-            f"{result_meta(r.tip_h, r.tip_a, r.points, r.source == 'live')}</li>")
+            f"<span class='pt p{r.pts}' title='{r.pts} Punkte'>{PT_ICON[r.pts]}<small>{r.pts}</small></span>"
+            f"{result_meta(r.tip_h, r.tip_a, r.pts, r.source == 'live')}</li>")
 
 
 def season_results(con: sqlite3.Connection, season: int) -> pd.DataFrame:
@@ -146,46 +146,77 @@ def season_results(con: sqlite3.Connection, season: int) -> pd.DataFrame:
     return p.merge(e, on="tm_match_id")
 
 
-def europe_view(con: sqlite3.Connection, ctx, today: date) -> tuple[str, set[int]]:
-    """HTML des Reiters und die Transfermarkt-IDs der gezeigten Wappen."""
-    d = _d()
+def _set_top(con: sqlite3.Connection, today: date) -> None:
     TOP.clear()
     TOP.update(r[0] for r in con.execute(
         f"SELECT DISTINCT home_id FROM matches WHERE season >= ? AND league IN ({','.join('?' * len(config.TOP_LEAGUES))})",
         (config.current_season(today) - 1, *config.TOP_LEAGUES)))
+
+
+def _style(c: str) -> str:
+    th = THEMES[c]
+    return f"--c1:{th.c1};--c2:{th.c2};--accent:{th.accent}"
+
+
+def _chip(anchor: str, c: str) -> str:
+    return f'<a href="#{anchor}" title="{escape(COMPETITIONS[c])}"><span class="logo lg-{c}"></span>{SHORT[c]}</a>'
+
+
+def europe_view(con: sqlite3.Connection, ctx, today: date) -> tuple[str, set[int]]:
+    """HTML des Reiters (nächste Runde + Turnierprognose) und die Transfermarkt-IDs der gezeigten Wappen."""
+    d = _d()
+    _set_top(con, today)
     pred = predict_europe.upcoming(con, today)
-    played = season_results(con, config.current_season(today))
-    shown = set(pred.tm_home_id) | set(pred.tm_away_id) | set(played.tm_home_id) | set(played.tm_away_id)
-    if pred.empty and played.empty:
-        return "<p class='muted'>Keine Europapokal-Spiele angesetzt.</p>", shown
+    shown = set(pred.tm_home_id) | set(pred.tm_away_id)
     games = fit_data(con)
     forecasts = tournament_forecasts(con, games, today)
-    comps = [c for c in COMPETITIONS if (pred.competition == c).any() or (played.competition == c).any()]
+    comps = [c for c in COMPETITIONS if (pred.competition == c).any() or forecasts.get(c) is not None]
+    if not comps:
+        return "<p class='muted'>Keine Europapokal-Spiele angesetzt.</p>", shown
     sections = []
     for c in comps:
-        th = THEMES[c]
         g = pred[pred.competition == c].assign(day=lambda x: pd.to_datetime(x.date).dt.date).sort_values(["date", "home_name"])
         body = "".join(f"<h3 class='day'>{d._day_title(day)} · {round_label(dg['round'].iloc[0], dg.leg.iloc[0], dg.matchday.iloc[0], int(dg.season.iloc[0]))}</h3>"
                        + "<div class='group'>" + "".join(match_row(r, ctx, games) for r in dg.sort_values(["kickoff", "home_name"]).itertuples()) + "</div>"
                        for day, dg in g.groupby("day", sort=True))
-        pc = played[played.competition == c]
-        res = ""
-        if len(pc):
-            pc = pc.assign(day=pd.to_datetime(pc.date).dt.date)
-            days = "".join(f"<h3 class='day'>{d._day_title(day)} <span class='muted'>· {int(dg.points.sum())} Punkte</span></h3>"
-                           f"<ul class='reslist group'>{''.join(_result_line(r, ctx) for r in dg.sort_values('home_name').itertuples())}</ul>"
-                           for day, dg in sorted(pc.groupby("day"), key=lambda x: x[0], reverse=True))
-            res = (f"<input type='checkbox' id='eures-{c}' class='tg'><label for='eures-{c}' class='more'>"
-                   f"✅ Ergebnisse dieser Saison ({len(pc)} Spiele, Ø {d._num(pc.points.mean(), 2)} Punkte)</label>"
-                   f"<div class='old'>{days}</div>")
-        sections.append(f"<section id='eu-{c}' class='league comp' style='--c1:{th.c1};--c2:{th.c2};--accent:{th.accent}'>"
+        sections.append(f"<section id='eu-{c}' class='league comp' style='{_style(c)}'>"
                         f"<h2><span class='logo lg-{c}'></span>{escape(COMPETITIONS[c])}</h2>{d.column_head()}"
                         f"{body or '<p class=muted>Kein Spiel in den nächsten Tagen.</p>'}"
-                        f"{forecast_html(c, forecasts.get(c), ctx)}{res}</section>")
-    chips = "<nav class='chips'>" + "".join(
-        f'<a href="#eu-{c}" title="{escape(COMPETITIONS[c])}"><span class="logo lg-{c}"></span>{SHORT[c]}</a>'
-        for c in comps) + "</nav>"
-    return chips + "".join(sections), shown
+                        f"{forecast_html(c, forecasts.get(c), ctx)}</section>")
+    return "<nav class='chips'>" + "".join(_chip(f"eu-{c}", c) for c in comps) + "</nav>" + "".join(sections), shown
+
+
+def results_sections(con: sqlite3.Connection, ctx, today: date) -> tuple[str, str, set[int]]:
+    """Europapokal-Ergebnisse der Saison für den Reiter „Ergebnisse“, je Wettbewerb ein Abschnitt
+    wie bei den Ligen: (Sprungknöpfe, HTML, Transfermarkt-IDs der Wappen)."""
+    from fussball.dashboard_views import RECENT_DAYS, _points
+    d = _d()
+    _set_top(con, today)
+    played = season_results(con, config.current_season(today))
+    if played.empty:
+        return "", "", set()
+    p = _points(played).assign(day=lambda x: pd.to_datetime(x.date).dt.date)
+    newest = p.day.max()
+    comps, sections = [], []
+    for c in COMPETITIONS:
+        pc = p[p.competition == c]
+        if pc.empty:
+            continue
+        comps.append(c)
+        recent, older = [], []
+        for day, dg in sorted(pc.groupby("day"), key=lambda x: x[0], reverse=True):
+            block = (f"<h3 class='day'>{d._day_title(day)} <span class='muted'>· {int(dg.pts.sum())} Punkte</span></h3>"
+                     f"<ul class='reslist group'>{''.join(_result_line(r, ctx) for r in dg.sort_values('home_name').itertuples())}</ul>")
+            (recent if (newest - day).days < RECENT_DAYS else older).append(block)
+        more = (f"<input type='checkbox' id='old-eu-{c}' class='tg'><label for='old-eu-{c}' class='more'>Ältere Spieltage</label>"
+                f"<div class='old'>{''.join(older)}</div>") if older else ""
+        summary = (f"Tendenz {d._pct(pc.tend.mean())} · exakt {d._pct(pc.exact.mean(), 1)} · "
+                   f"{d._num(pc.pts.mean(), 2)} Punkte pro Spiel")
+        sections.append(f"<section id='erg-eu-{c}' class='league comp' style='{_style(c)}'>"
+                        f"<h2><span class='logo lg-{c}'></span>{escape(COMPETITIONS[c])}</h2>"
+                        f"<p class='muted small'>{summary}</p>{''.join(recent)}{more}</section>")
+    return ("".join(_chip(f"erg-eu-{c}", c) for c in comps), "".join(sections),
+            set(played.tm_home_id) | set(played.tm_away_id))
 
 
 def tournament_forecasts(con: sqlite3.Connection, games: pd.DataFrame, today: date) -> dict:

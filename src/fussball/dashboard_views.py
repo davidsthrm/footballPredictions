@@ -128,10 +128,11 @@ def _result_line(r, ctx, stats: dict | None = None) -> str:
 
 
 def results_view(played: pd.DataFrame, ctx, live_html: str = "", record_html: str = "",
-                 stats: dict | None = None) -> str:
+                 stats: dict | None = None, europe: tuple[str, str] = ("", "")) -> str:
     """played: league, date, home_id, away_id, hg, ag, tip_h, tip_a, source ('live'|'backtest').
 
     Je Liga die Spieltage der letzten RECENT_DAYS Tage offen, ältere pro Liga eingeklappt.
+    europe: (Sprungknöpfe, Abschnitte) aus dashboard_europe.results_sections, nach den Ligen.
     """
     d = _d()
     if played.empty:
@@ -158,8 +159,9 @@ def results_view(played: pd.DataFrame, ctx, live_html: str = "", record_html: st
                         f"<h2><span class='logo lg-{lg}'></span>{escape(config.LEAGUES[lg].name)}</h2>"
                         f"<p class='muted small'>{summary(lp)}</p>{''.join(recent)}{more}</section>")
     note = "<p class='muted small'>● = live getippt</p>" if (p.source == "live").any() else ""
-    return (f"{d.chips([(f'erg-{lg}', lg) for lg in leagues])}{record_html}<section class='plain'>{live_html}{note}</section>"
-            + "".join(sections))
+    eu_chips, eu_html = europe
+    return (f"{d.chips([(f'erg-{lg}', lg) for lg in leagues], eu_chips)}{record_html}"
+            f"<section class='plain'>{live_html}{note}</section>" + "".join(sections) + eu_html)
 
 
 # --- Modell-Bilanz ------------------------------------------------------------------------

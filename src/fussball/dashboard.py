@@ -268,11 +268,11 @@ def blowout(m: np.ndarray, home: str, away: str) -> str:
     return f"💥 Kantersieg (3+ Tore) für {escape(team)}: {_pct(p)}" if p >= BLOWOUT_MIN else ""
 
 
-def chips(items: list[tuple[str, str]]) -> str:
-    """Sprungnavigation zu den Ligen: (Anker, Liga-Code)."""
+def chips(items: list[tuple[str, str]], extra: str = "") -> str:
+    """Sprungnavigation zu den Ligen: (Anker, Liga-Code); extra = weitere fertige Knöpfe dahinter."""
     return "<nav class='chips'>" + "".join(
         f'<a href="#{anchor}"><span class="logo lg-{lg}"></span>{escape(config.LEAGUES[lg].name)}</a>'
-        for anchor, lg in items) + "</nav>"
+        for anchor, lg in items) + extra + "</nav>"
 
 
 DERBIES = {frozenset(pair): name for pair, name in [
@@ -626,6 +626,8 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
     facts = insights.weekly_facts(res, players, bt, names, season_, today)
 
     europa, eu_crests = dashboard_europe.europe_view(con, ctx, today)
+    eu_chips, eu_results, eu_res_crests = dashboard_europe.results_sections(con, ctx, today)
+    eu_crests |= eu_res_crests
     shown_teams = (set(pred.home_id) | set(pred.away_id) | set(proj.team_id) | set(played.home_id)
                    | set(played.away_id) | {k for f in facts if f.kind == "team" for k, _ in f.ranking})
     img_css = [_img_css(f"c{crests[t]}", IMG_DIR / transfermarkt.crest_name(crests[t]))
@@ -644,7 +646,7 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
         games = "<p class='muted'>Keine Vorhersagen vorhanden – erst <code>fussball predict</code> ausführen.</p>"
     results = views.results_view(played, ctx, live_summary(sc) + ab_test(sc_all, model),
                                  views.model_record(played, model_comparison(), season_),
-                                 views.match_stats(con, played))
+                                 views.match_stats(con, played), (eu_chips, eu_results))
     fakten = views.facts_view(facts, ctx)
 
     if len(pred):
