@@ -283,7 +283,6 @@ def table_view(proj: pd.DataFrame, ctx) -> str:
                         f"<td>{r.played}</td><td>{r.gf - r.ga:+d}</td><td class='pts'>{r.pts}</td>"
                         f"<td class='prog'>{r.exp_pts:.0f}</td>{heat(r.p_title, '--title')}{heat(r.p_cl, '--title')}"
                         f"{heat(r.p_releg + r.p_playoff, '--down')}</tr>")
-        po = " oder Relegation" if rules.playoff else ""
         out.append(f"""<section id="tab-{lg}" class="league" style="--lg:{d.THEMES[lg].primary}">
 <h2><span class="logo lg-{lg}"></span>{escape(config.LEAGUES[lg].name)}</h2>
 <table class="ltable league-table"><thead><tr><th class="pos">#</th><th class="tn"></th><th>Sp</th><th>TD</th>

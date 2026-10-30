@@ -56,20 +56,6 @@ def cmd_ingest(args) -> int:
         from fussball.ingest import other_leagues
         _print(other_leagues.ingest(con))
         bad = []
-    elif args.source == "clubelo":
-        from fussball.ingest import clubelo
-        teams.sync_seed_map(con)
-        if args.suggest:
-            from fussball.http import Fetcher
-            clubs = clubelo.discover_clubs(Fetcher("clubelo"), config.seasons())
-            sugg = clubelo.suggest_names(con, clubs)
-            for s in sugg:
-                if s.pop("fuzzy", False):
-                    print(f"  fuzzy: {s['source_name']!r} -> {s['team_id']}")
-            print(f"{teams.append_seed(sugg)} neue Vorschläge in {teams.SEED_MAP}")
-            teams.sync_seed_map(con)
-        _print(clubelo.ingest(con, refresh=args.refresh))
-        bad = []
     elif args.source == "europe":
         from fussball.ingest import europe
         teams.sync_seed_map(con)
@@ -178,7 +164,7 @@ def cmd_predict(args) -> int:
 def cmd_dashboard(args) -> int:
     from fussball import dashboard
     con = db.connect()
-    targets = args.out or [dashboard.OUT_FILE] + ([config.DASHBOARD_COPY] if config.DASHBOARD_COPY else [])
+    targets = args.out or [dashboard.OUT_FILE]
     for out in targets:
         print("Dashboard:", dashboard.build(con, out))
     return 0
@@ -220,12 +206,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("ingest", help="Daten laden (idempotent, mit Cache)")
-    s.add_argument("source", choices=["football-data", "understat", "clubelo", "europe", "squad-values", "other-leagues", "understat-matches"])
+    s.add_argument("source", choices=["football-data", "understat", "europe", "squad-values", "other-leagues", "understat-matches"])
     s.add_argument("--leagues", help="z.B. E0,D1 (Default: alle)")
     s.add_argument("--seasons", help="Startjahre, z.B. 2014-2026 oder 2024,2025")
     s.add_argument("--suggest", action="store_true",
                    help="Teamnamen-Vorschläge in data_seed/team_name_map.csv schreiben")
-    s.add_argument("--refresh", action="store_true", help="clubelo: Historien neu abrufen")
     s.set_defaults(func=cmd_ingest)
 
     s = sub.add_parser("snapshot", help="Täglicher Transfermarkt-Snapshot (Verletzungen/Sperren)")

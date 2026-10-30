@@ -12,8 +12,7 @@ Modellauswahl über Log-Loss auf der Ergebnismatrix (Trefferquote ist zu verraus
   Nie in Feature- oder Fit-Daten joinen. Abgesichert durch `tests/test_no_odds_leakage.py`
   – neue Module mit Quoten-Zugriff dort NICHT einfach auf die Whitelist setzen.
 - **Point-in-time-Korrektheit.** Features/Fits für ein Spiel am Tag D nutzen nur Daten
-  mit Zeitstempel < D (Cutoff = Vortag nach Spielschluss, `lag_days=1`). ClubElo-Ratings
-  mit `valid_from = D` sind erst nach den Spielen von D-1 bekannt. Kein zufälliger
+  mit Zeitstempel < D (Cutoff = Vortag nach Spielschluss, `lag_days=1`). Kein zufälliger
   Train/Test-Split, nur Walk-forward.
 - **Nur kostenlose Datenquellen.**
 - **Stack bewusst simpel:** Python/uv, pandas, SQLite, requests + BeautifulSoup, scipy,
@@ -22,14 +21,13 @@ Modellauswahl über Log-Loss auf der Ergebnismatrix (Trefferquote ist zu verraus
 - **Höflich scrapen:** `fussball.http.Fetcher` benutzen (Rate-Limit, eigener User-Agent,
   Cache unter `data/raw/`, nie doppelt abrufen). Bei 403/Bot-Schutz abbrechen, nichts
   umgehen (keine Proxies, keine gefälschten Browser-Header).
-- Secrets (`FOOTBALL_DATA_ORG_API_KEY`) nur in `.env`, nie committen.
+- Secrets (`CLOUDFLARE_API_TOKEN`) nur in `.env`, nie committen.
 
 ## Befehle
 ```bash
 uv run pytest                                  # Tests (ohne Netzwerk)
 uv run fussball ingest football-data           # Ergebnisse + Statistik, 1. und 2. Ligen
 uv run fussball ingest understat [--suggest]   # xG; --suggest schlägt Teamnamen vor
-uv run fussball ingest clubelo [--suggest]     # Elo-Historien der gemappten Vereine
 uv run fussball ingest europe [--suggest]      # Europapokal-Termine (Transfermarkt)
 uv run fussball ingest squad-values [--suggest] # Kaderwerte abgeschlossener Saisons (1. + 2. Ligen)
 uv run fussball ingest other-leagues           # 16 weitere Ligen (NED, POR, TUR, AUT, …) für das Europa-Modell
@@ -41,7 +39,7 @@ uv run fussball backtest [--tune]              # Walk-forward + Report in data/r
 uv run fussball backtest-europe [--tune]       # Walk-forward CL/EL/ECL -> europe_params.json, tip_weights_eu.json
 uv run fussball predict [--no-refresh]         # nächster Spieltag -> predictions + JSON
 uv run fussball scorecard                      # echte Trefferbilanz
-uv run fussball dashboard                      # data/dashboard/index.html (+ FUSSBALL_DASHBOARD_COPY)
+uv run fussball dashboard                      # data/dashboard/index.html
 uv run fussball webapp [--setup] [--deploy]    # Web-App data/site -> Cloudflare Pages (Token in .env)
 ```
 Geplanter Lauf: `ops/daily.sh` via launchd (`ops/install_launchd.sh`), kein Dauerprozess.
@@ -60,9 +58,8 @@ Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tip
   seit 2026-10-08, Validierung ΔLog-Loss −0,0002, Test −0,0006 bei z −3,8); `models/lgbm.py` LightGBM-Korrekturstufe
   (Poisson, DC-log-λ als Offset), je Saison nur auf Vorsaisons trainiert
 - `ingest/europe.py` Europapokal-Termine (CL/EL/ECL, Transfermarkt-Gesamtspielplan, ~32 Seiten);
-  Vereine über TM-ID gemappt (Quelle `transfermarkt_id` in der Seed-Map). Belastungs-Features
-  (`form.EU_FEATURES`) sind berechnet, aber NICHT im Modell: im Backtest kein Gewinn.
-  Im Dashboard nur als Hinweis („Europapokal vor/in n Tagen“).
+  Vereine über TM-ID gemappt (Quelle `transfermarkt_id` in der Seed-Map). Im Dashboard
+  als Hinweis („Europapokal vor/in n Tagen“); als Modell-Feature verworfen (siehe unten).
 - `features/availability.py` Ausfall-Gewicht je Team: Anteil fehlender Minuten / xG+xA /
   Defensivminuten (Understat-Spielerdaten, Tabelle player_season_stats) aus dem letzten
   Snapshot vor dem Spieltag. Anpassung der Raten ist eine NICHT validierte Schätzung
@@ -119,8 +116,7 @@ Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tip
   Segmentschalter oben, am Handy (≤ 700 px) als Tab-Leiste unten mit Linien-Icons; Spielzeilen am
   Handy zweizeilig (Teams + Tipp, darunter Anstoß und „Tendenz x %“). Details ohne Datum/Uhrzeit
   (stehen im Tageskopf) und ohne Wappen. Flutlicht-Modus = echtes, gemeinfreies Stadionfoto
-  (data_seed/img/, Quellen in QUELLEN.md). App-Symbol data_seed/img/app_icon.png (Home-Bildschirm,
-  liegt nach jedem Lauf auch neben der iCloud-Kopie). Reiter Spiele/Ergebnisse/
+  (data_seed/img/, Quellen in QUELLEN.md). App-Symbol data_seed/img/app_icon.png (Home-Bildschirm der Web-App). Reiter Spiele/Ergebnisse/
   Tabelle/Fakten mit Liga-Sprungknöpfen; Spiele und Ergebnisse je Liga und Tag gruppiert, eine
   Zeile pro Spiel, Details (1X2, Vergleichstabelle Heim/Auswärts, Hinweise, Matrix) erst nach
   Antippen. Emojis sparsam als Icons (Fakten, Detail-Zeilen, Punkte), keine Schatten/Verläufe,
@@ -157,5 +153,5 @@ Sofort-Lauf: Knopf „Jetzt aktualisieren“ im Dashboard (nur Mac) öffnet `tip
   mit Tordifferenz, 1.+2. Liga als ein Pool, auch mit Momentum), xG-Elo, Pi-Ratings, Form der
   Schüsse aufs Tor, xG-Trend (kurze gegen lange Form). Dixon-Coles misst die Stärke schon.
   ClubElo-API (api.clubelo.com) lieferte am 2026-10-08 durchgehend 502; die neue Website zeigt
-  Verläufe erst ab 2022 → für Validierung 2016–2018 unbrauchbar.
+  Verläufe erst ab 2022 → für Validierung 2016–2018 unbrauchbar (Import 2026-10-30 entfernt).
 - Code und Kommentare auf Deutsch, Bezeichner auf Englisch.

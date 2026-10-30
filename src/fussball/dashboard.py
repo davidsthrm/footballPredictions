@@ -41,7 +41,6 @@ MATRIX_SHOW = 6  # 0..5 Tore je Team
 class Theme:
     primary: str   # Hauptfarbe der Liga (Kopfband, Akzente)
     accent: str    # zweite Markenfarbe (Linie im Kopfband)
-    ink: str = "#ffffff"  # Textfarbe auf primary
 
 
 # An die offiziellen Logos angelehnte Markenfarben
@@ -699,10 +698,8 @@ def app_meta() -> str:
 
 
 def build(con: sqlite3.Connection, out: Path | None = None, today: date | None = None) -> Path:
-    """Schreibt das Dashboard; liegt das Ziel außerhalb von data/ (iCloud-Kopie), kommt das App-Symbol daneben."""
+    """Schreibt das Dashboard."""
     out = Path(out or OUT_FILE)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(con, today), encoding="utf-8")
-    if APP_ICON.exists() and out.parent != OUT_FILE.parent:
-        (out.parent / "Tippspiel-Symbol.png").write_bytes(APP_ICON.read_bytes())
     return out

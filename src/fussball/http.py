@@ -37,7 +37,6 @@ class Fetcher:
         self.session = session or requests.Session()
         self.session.headers["User-Agent"] = config.USER_AGENT
         self._last_request: dict[str, float] = {}
-        self.n_requests = 0
 
     def path(self, name: str) -> Path:
         return self.cache_dir / name
@@ -70,7 +69,6 @@ class Fetcher:
                 log.warning("%s: %s – neuer Versuch in %.0fs", url, type(e).__name__, wait)
                 time.sleep(wait)
                 continue
-            self.n_requests += 1
             if resp.status_code == 200:
                 break
             if resp.status_code in (401, 403):

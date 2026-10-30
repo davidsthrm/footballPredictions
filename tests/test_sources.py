@@ -1,10 +1,10 @@
-"""Parser-Tests für Understat, ClubElo und Transfermarkt mit minimalen synthetischen Fixtures."""
+"""Parser-Tests für Understat und Transfermarkt mit minimalen synthetischen Fixtures."""
 
 import pandas as pd
 import pytest
 
-from fussball import db, teams
-from fussball.ingest import clubelo, understat
+from fussball import db
+from fussball.ingest import understat
 from fussball.ingest import football_data as fd
 from fussball.ingest import transfermarkt as tm
 from tests.conftest import make_csv
@@ -44,17 +44,6 @@ def test_understat_parse_suggest_and_link(con):
     n, unmapped = understat.store(con, xg)
     assert n == len(xg) and not unmapped
     assert con.execute("SELECT COUNT(*) FROM team_xg WHERE match_id IS NULL").fetchone()[0] == 0
-
-
-def test_clubelo_parse_and_store(con):
-    raw = (b"Rank,Club,Country,Level,Elo,From,To\n"
-           b"None,Bayern,GER,1,1800.5,2012-05-01,2012-05-10\n"
-           b"None,Bayern,GER,1,1850.0,2014-08-01,2014-08-23\n"
-           b"None,Bayern,GER,1,1861.2,2014-08-24,2014-08-30\n")
-    df = clubelo.parse(raw)
-    assert list(df.columns) == ["Rank", "club", "country", "level", "elo", "valid_from", "valid_to"]
-    teams.register_canonical(con, {"Bayern Munich": "GER"})
-    assert clubelo.store(con, df, "bayern-munich") == 2  # Eintrag vor MIN_DATE fällt weg
 
 
 LEAGUE_HTML = """<html><body><table class="items"><thead><tr><th>Verein</th><th>name</th><th>Kader</th>

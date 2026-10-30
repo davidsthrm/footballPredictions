@@ -35,7 +35,6 @@ COMPETITIONS = {  # Code -> (URL-Slug, erste Saison)
     "UCOL": ("uefa-conference-league", 2021),
 }
 SOURCE = "transfermarkt_id"
-DATE_RE = re.compile(r"(\d{2}\.\d{2}\.\d{4})")
 CLUB_RE = re.compile(r"/([^/]+)/(?:startseite|spielplan)/verein/(\d+)")
 CURRENT_MAX_AGE_H = 24
 

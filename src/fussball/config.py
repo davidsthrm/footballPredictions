@@ -27,8 +27,6 @@ RAW_DIR = DATA_DIR / "raw"
 REPORT_DIR = DATA_DIR / "reports"
 DB_PATH = Path(os.environ.get("FUSSBALL_DB", DATA_DIR / "fussball.sqlite"))
 SEED_DIR = ROOT / "data_seed"
-# Optionale zweite Zieldatei fürs Dashboard, z.B. in iCloud Drive (Zugriff vom Handy)
-DASHBOARD_COPY = os.environ.get("FUSSBALL_DASHBOARD_COPY") or None
 
 FIRST_SEASON = 2014  # Saison 2014/15; Saisons werden über ihr Startjahr identifiziert
 
