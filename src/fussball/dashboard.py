@@ -115,12 +115,15 @@ def europe_note(ctx: Ctx, team_id: str, team: str, match_date: str) -> str:
     return ""
 
 
-def absences(con: sqlite3.Connection) -> pd.DataFrame:
-    """Ausfälle aus dem letzten Snapshot, ein Eintrag pro Spieler (Gründe zusammengefasst)."""
+def absences(con: sqlite3.Connection, today: date) -> pd.DataFrame:
+    """Ausfälle aus dem letzten Snapshot, ein Eintrag pro Spieler (Gründe zusammengefasst);
+    leer, wenn der Snapshot älter als availability.MAX_SNAPSHOT_AGE_DAYS ist."""
     a = db.read(con, """
         SELECT team_id, tm_player_id, player, position, reason, until FROM availability_snapshots
         WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM availability_snapshots)
-          AND category IN ('injury', 'suspension') AND team_id IS NOT NULL""")
+          AND snapshot_date >= date(?, ?)
+          AND category IN ('injury', 'suspension') AND team_id IS NOT NULL""",
+                (today.isoformat(), f"-{availability.MAX_SNAPSHOT_AGE_DAYS} days"))
     a["reason"] = a.reason.fillna("Ausfall")
     return (a.groupby(["team_id", "tm_player_id"], as_index=False)
              .agg(player=("player", "first"), position=("position", "first"),
@@ -209,6 +212,8 @@ def outcome_strip(ph: float, pd_: float, pa: float, pick: int) -> str:
 
 def absence_cell(ctx: Ctx, team_id: str) -> str:
     """Ausfälle eines Teams als Liste; Stammspieler (>= 50 % der Minuten) fett und zuerst."""
+    if ctx.ab.empty:
+        return "<span class='muted'>keine aktuellen Daten</span>"
     a = ctx.ab[ctx.ab.team_id == team_id]
     if a.empty:
         return "<span class='muted'>keine gemeldet</span>"
@@ -615,7 +620,7 @@ def render(con: sqlite3.Connection, today: date | None = None) -> str:
     players = insights.load_players(con, season_)
     totals = ({"max_total": float((pred.lam_h + pred.lam_a).max()), "min_total": float((pred.lam_h + pred.lam_a).min())}
               if len(pred) else {})
-    ctx = Ctx(names, crests, absences(con), impact, key, eu, res, players, totals)
+    ctx = Ctx(names, crests, absences(con, today), impact, key, eu, res, players, totals)
     sc_all = predict.scorecard(con)
     sc = sc_all[sc_all.model == model] if len(sc_all) else sc_all
     snap = con.execute("SELECT MAX(snapshot_date) FROM availability_snapshots").fetchone()[0]

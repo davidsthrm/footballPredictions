@@ -1,6 +1,7 @@
 """Höflicher HTTP-Client mit Datei-Cache.
 
 - Eigener User-Agent, Mindestabstand pro Host, Backoff bei 429/5xx.
+- 401/403 und Bot-Prüfungen (202, AWS WAF) -> BlockedError; solche Antworten werden nie gespeichert.
 - Jede Antwort landet unter data/raw/<source>/<name>; existiert die Datei, wird
   nicht erneut abgerufen (außer refresh=True, z.B. für die laufende Saison).
 - Neben jeder Datei liegt <name>.meta.json mit URL, Zeitstempel und Status.
@@ -69,6 +70,10 @@ class Fetcher:
                 log.warning("%s: %s – neuer Versuch in %.0fs", url, type(e).__name__, wait)
                 time.sleep(wait)
                 continue
+            if "x-amzn-waf-action" in resp.headers or resp.status_code == 202:
+                # Bot-Prüfung (z.B. AWS WAF „challenge“: 202 mit leerer Seite) – nicht speichern, nicht umgehen
+                raise BlockedError(f"{resp.status_code} für {url} – Bot-Schutz "
+                                   f"({resp.headers.get('x-amzn-waf-action', 'unbekannt')}), Abbruch.")
             if resp.status_code == 200:
                 break
             if resp.status_code in (401, 403):

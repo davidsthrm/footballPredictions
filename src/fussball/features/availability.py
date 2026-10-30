@@ -26,6 +26,7 @@ ATTACK_FACTOR = 0.5    # Ersatzspieler fängt etwa die Hälfte des fehlenden xG+
 DEFENCE_FACTOR = 0.3   # fehlende Defensive erhöht die Gegentore moderat
 MAX_ATTACK_CUT = 0.25
 MAX_DEFENCE_RISE = 0.20
+MAX_SNAPSHOT_AGE_DAYS = 7  # älterer Stand gilt als veraltet (z.B. Snapshot gescheitert) und wird ignoriert
 
 
 TRANSLIT = str.maketrans({"ø": "o", "Ø": "O", "æ": "ae", "Æ": "Ae", "å": "a", "ß": "ss", "đ": "d",
@@ -69,9 +70,11 @@ def player_importance(con: sqlite3.Connection, season: int) -> pd.DataFrame:
 
 
 def team_absences(con: sqlite3.Connection, match_date: str, season: int) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(pro Team: fehlende Anteile, pro Spieler: Zuordnung) aus dem letzten Snapshot vor match_date."""
-    snap = con.execute("SELECT MAX(snapshot_date) FROM availability_snapshots WHERE snapshot_date < ?",
-                       (match_date,)).fetchone()[0]
+    """(pro Team: fehlende Anteile, pro Spieler: Zuordnung) aus dem letzten Snapshot vor match_date,
+    höchstens MAX_SNAPSHOT_AGE_DAYS alt."""
+    snap = con.execute("SELECT MAX(snapshot_date) FROM availability_snapshots WHERE snapshot_date < ? "
+                       "AND snapshot_date >= date(?, ?)",
+                       (match_date, match_date, f"-{MAX_SNAPSHOT_AGE_DAYS} days")).fetchone()[0]
     empty = pd.DataFrame(columns=["team_id", "n_absent", "missing_lineup", "missing_att", "missing_def"])
     if snap is None:
         return empty, pd.DataFrame()
